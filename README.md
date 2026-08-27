@@ -14,33 +14,75 @@ Buy/Sell/Hold directive.
 
 ---
 
-## Quick start
+## Setup for the team
+
+Three steps, on any of the team's machines. **Requires Python 3.10 or newer.**
+
+### macOS / Linux
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+git clone https://github.com/mugeevran-cmd/Sabanc-Bitirme-Projesi.git
+cd Sabanc-Bitirme-Projesi
+./setup.sh
 ```
 
+Then start the dashboard:
+
 ```bash
+./.venv/bin/streamlit run finagent_pulse/app/streamlit_app.py
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/mugeevran-cmd/Sabanc-Bitirme-Projesi.git
+cd Sabanc-Bitirme-Projesi
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+Expand-Archive artifacts.zip -DestinationPath . -Force
+.venv\Scripts\streamlit run finagent_pulse\app\streamlit_app.py
+```
+
+### How long this takes
+
+`setup.sh` installs the dependencies and then looks for **`artifacts.zip`**, a
+46 MB snapshot of the generated dataset, model checkpoint and search indexes
+that ships with the repository. When it finds it, the pipeline is skipped
+entirely and setup finishes in about **five minutes** — essentially the time it
+takes pip to download PyTorch.
+
+Nothing in that archive is precious: every byte is reproducible from seeds. To
+rebuild from source instead, delete the four generated folders and re-run:
+
+```bash
+rm -rf data_raw data_processed models_out rag_index
 python -m finagent_pulse.pipeline
 ```
 
-The pipeline downloads the data, scores sentiment, builds the indexes, trains
-the forecaster, runs every evaluation and writes an executive report. Each stage
-is cached, so a rerun only redoes what is missing. First run takes roughly
-20–30 minutes on a laptop CPU (FinBERT scoring and index building dominate).
+That path downloads the Kaggle corpus, pulls ~500 MB of FinBERT and MiniLM
+weights, scores 12,456 headlines, builds three search indexes and trains a
+3-seed LSTM ensemble. Measured end-to-end on an M2 MacBook from a clean clone:
+**8 minutes** (sentiment 144 s, evaluation 221 s, forecaster 68 s, indexes 27 s).
+Stages are cached individually, so it is resumable.
 
-```bash
-streamlit run finagent_pulse/app/streamlit_app.py
-```
+That clean-clone run reproduced the reported metrics **bit-for-bit** — RMSE
+0.014947, R² −0.020412, directional accuracy 73.5426%, skill +2.973156% — which
+is what the fixed seeds are there to guarantee.
 
-### Running individual stages
+The dashboard refuses to start before either path has completed, and says so
+explicitly rather than failing obscurely.
+
+---
+
+## Running individual stages
 
 ```bash
 python -m finagent_pulse.pipeline --only forecast     # one stage
 python -m finagent_pulse.pipeline --from rag          # resume from a stage
 python -m finagent_pulse.pipeline --force             # ignore caches
 ```
+
+Stages, in order: `ingest → sentiment → features → rag → forecast → evaluate → report`
 
 ### Optional: LLM-written narratives
 
