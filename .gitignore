@@ -1,0 +1,32 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Yerel yedekler ---
+*.BACKUP-*.ipynb
+*.bak
+
+# --- Veri & model çıktıları (Colab'da üretilir, repoya girmez) ---
+data_raw/
+data_processed/
+models_out/
+rag_index/
+*.keras
+*.h5
+*.pkl
+*.gpickle
+*.parquet
+
+# --- Kimlik bilgileri — ASLA commit etme ---
+kaggle.json
+.kaggle/
+.env
+*.pem
+secrets.*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
