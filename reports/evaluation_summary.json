@@ -1,0 +1,88 @@
+{
+  "forecaster_ablation": [
+    {
+      "variant": "price_only",
+      "n_features": 8,
+      "rmse_return": 0.014825062552632166,
+      "r2_return": -0.0038084101397544146,
+      "r2_price": 0.9350159448208285,
+      "mape_price_pct": 1.1374745487939701,
+      "directional_acc_h7": 0.6771300448430493,
+      "skill_vs_naive_pct": 3.7657836707640113
+    },
+    {
+      "variant": "sentiment_only",
+      "n_features": 7,
+      "rmse_return": 0.015760085545388203,
+      "r2_return": -0.13442260026931763,
+      "r2_price": 0.926341455092575,
+      "mape_price_pct": 1.1920368991641324,
+      "directional_acc_h7": 0.5874439461883408,
+      "skill_vs_naive_pct": -2.3037492326042797
+    },
+    {
+      "variant": "price_plus_sentiment",
+      "n_features": 15,
+      "rmse_return": 0.014947168265320597,
+      "r2_return": -0.020411979407072067,
+      "r2_price": 0.933996579962183,
+      "mape_price_pct": 1.1446577442566401,
+      "directional_acc_h7": 0.7354260089686099,
+      "skill_vs_naive_pct": 2.9731564876963934
+    }
+  ],
+  "sentiment_validation": {
+    "period": [
+      "2023-04-03",
+      "2024-03-01"
+    ],
+    "n_sessions": 230,
+    "corr_same_day": {
+      "r": 0.5730912516596859,
+      "p_value": 1.772702214997321e-21
+    },
+    "corr_next_day": {
+      "r": -0.045200380512815885,
+      "p_value": 0.4951684110320109
+    },
+    "next_day_hit_rate": 0.5079365079365079,
+    "n_signed_sessions": 189,
+    "tail_spread": {
+      "bullish_quintile_mean_next_return_bps": 16.75281265885014,
+      "bearish_quintile_mean_next_return_bps": 21.238488993697942,
+      "welch_t": -0.3162205732322781,
+      "p_value": 0.7526174003445107
+    },
+    "label_distribution": {
+      "neutral": 0.5002,
+      "negative": 0.2868,
+      "positive": 0.213
+    }
+  },
+  "decision_thresholds": {
+    "percentile": 0.8,
+    "n_validation_points": 95,
+    "signal_to_noise_min": 0.17529527815290868,
+    "return_threshold": 0.005266785621643067,
+    "snr_max_observed": 0.4987865816534009,
+    "note": "signal-to-noise never approaches 1.0, so the gate is a relative conviction percentile rather than an absolute forecast-beats-noise test"
+  },
+  "committee_backtest": {
+    "n_decisions": 75,
+    "directive_distribution": {
+      "HOLD": 63,
+      "BUY": 12
+    },
+    "agreement_distribution": {
+      "sentiment_neutral": 57,
+      "conflicting": 12,
+      "aligned": 6
+    },
+    "traps_flagged": 12,
+    "forecast_directional_accuracy": 0.72,
+    "n_traded": 12,
+    "traded_hit_rate": 0.75,
+    "mean_strategy_return_pct": 0.06744582129516674,
+    "buy_and_hold_mean_7d_pct": 0.6062232278261751
+  }
+}

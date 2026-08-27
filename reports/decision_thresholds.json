@@ -1,0 +1,8 @@
+{
+  "percentile": 0.8,
+  "n_validation_points": 95,
+  "signal_to_noise_min": 0.17529527815290868,
+  "return_threshold": 0.005266785621643067,
+  "snr_max_observed": 0.4987865816534009,
+  "note": "signal-to-noise never approaches 1.0, so the gate is a relative conviction percentile rather than an absolute forecast-beats-noise test"
+}

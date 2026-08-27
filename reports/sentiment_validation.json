@@ -1,0 +1,28 @@
+{
+  "period": [
+    "2023-04-03",
+    "2024-03-01"
+  ],
+  "n_sessions": 230,
+  "corr_same_day": {
+    "r": 0.5730912516596859,
+    "p_value": 1.772702214997321e-21
+  },
+  "corr_next_day": {
+    "r": -0.045200380512815885,
+    "p_value": 0.4951684110320109
+  },
+  "next_day_hit_rate": 0.5079365079365079,
+  "n_signed_sessions": 189,
+  "tail_spread": {
+    "bullish_quintile_mean_next_return_bps": 16.75281265885014,
+    "bearish_quintile_mean_next_return_bps": 21.238488993697942,
+    "welch_t": -0.3162205732322781,
+    "p_value": 0.7526174003445107
+  },
+  "label_distribution": {
+    "neutral": 0.5002,
+    "negative": 0.2868,
+    "positive": 0.213
+  }
+}
