@@ -185,10 +185,10 @@ def tab_dashboard(df: pd.DataFrame, as_of: pd.Timestamp) -> None:
 
     left, right = st.columns([3, 1])
     left.plotly_chart(price_and_forecast_chart(df, as_of, forecast),
-                      use_container_width=True)
+                      width="stretch")
     with right:
         st.plotly_chart(fear_greed_gauge(float(row["fear_greed"])),
-                        use_container_width=True)
+                        width="stretch")
         st.caption("Sentiment percentile-ranked across the full 2018-2024 study "
                    "period, so 50 means a typical day rather than an absolute "
                    "neutral level.")
@@ -200,7 +200,7 @@ def tab_dashboard(df: pd.DataFrame, as_of: pd.Timestamp) -> None:
             "Projected level": [f"{p:,.2f}" for p in forecast["prices"]],
             "Cumulative return": [f"{r:+.2f}%" for r in forecast["path_return_pct"]],
         })
-        st.dataframe(traj, use_container_width=True, hide_index=True)
+        st.dataframe(traj, width="stretch", hide_index=True)
 
 
 def tab_committee(as_of: pd.Timestamp) -> None:
@@ -262,7 +262,7 @@ def tab_rag() -> None:
             "Date": d.date, "Headline": d.headline, "Sentiment": round(d.sentiment, 3),
             "Label": d.label, "Entities": ", ".join(d.entities),
             "Retrieved by": d.provenance,
-        } for d in docs]), use_container_width=True, hide_index=True)
+        } for d in docs]), width="stretch", hide_index=True)
 
 
 def tab_evaluation() -> None:
@@ -302,17 +302,17 @@ def tab_evaluation() -> None:
         fig.update_yaxes(title_text="RMSE (log-return)", secondary_y=False)
         fig.update_yaxes(title_text="Directional accuracy", range=[0.3, 0.85],
                          secondary_y=True)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     ab = load_csv(config.REPORTS / "forecaster_ablation.csv")
     if ab is not None:
         st.subheader("Does the sentiment channel help?")
-        st.dataframe(ab.round(5), use_container_width=True, hide_index=True)
+        st.dataframe(ab.round(5), width="stretch", hide_index=True)
 
     rag = load_csv(config.REPORTS / "rag_ablation.csv")
     if rag is not None:
         st.subheader("Standard RAG vs Hybrid RAG")
-        st.dataframe(rag.round(4), use_container_width=True, hide_index=True)
+        st.dataframe(rag.round(4), width="stretch", hide_index=True)
         macro = rag[rag["query_style"] != "macro_average"]
         fig = go.Figure()
         for style in macro["query_style"].unique():
@@ -321,7 +321,7 @@ def tab_evaluation() -> None:
         fig.update_layout(height=340, template="plotly_white", barmode="group",
                           title="nDCG@10 by retrieval mode and query style",
                           margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("BM25 wins on keyword queries and collapses on natural-language "
                    "ones; the dense index does the reverse. The fused modes are the "
                    "only ones that stay strong on both — robustness, not a bigger "
@@ -355,7 +355,7 @@ def tab_evaluation() -> None:
                    np.sign(traded["realised_7d_pct"])).mean()
             c[2].metric("Hit rate when traded", f"{hit:.1%}")
         c[3].metric("Traps flagged", int(bt["trap_flagged"].sum()))
-        st.dataframe(bt, use_container_width=True, hide_index=True)
+        st.dataframe(bt, width="stretch", hide_index=True)
 
 
 def tab_corpus(df: pd.DataFrame) -> None:
@@ -377,7 +377,7 @@ def tab_corpus(df: pd.DataFrame) -> None:
     fig.update_layout(height=340, template="plotly_white",
                       title="Corpus coverage and sentiment by year",
                       margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("2024 covers January–March only: the source corpus ends 2024-03-04.")
 
     st.subheader("Browse headlines")
@@ -390,7 +390,7 @@ def tab_corpus(df: pd.DataFrame) -> None:
         st.dataframe(
             sel[["headline", "sentiment", "label", "confidence"]]
             .sort_values("sentiment", ascending=False).round(3),
-            use_container_width=True, hide_index=True)
+            width="stretch", hide_index=True)
 
 
 # --------------------------------------------------------------------------
