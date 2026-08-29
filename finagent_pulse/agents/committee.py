@@ -407,11 +407,7 @@ def risk_manager_node(state: CommitteeState) -> dict:
     if sent["contrarian_flag"] and directive != "HOLD":
         reasons.append("one-sided news coverage argues for restraint on size")
 
-    principle_query = (
-        f"{directive} decision with {agreement} signals in a "
-        f"{quant['volatility_regime']} volatility regime; position sizing and "
-        "confirmation requirements")
-    principles = get_retriever().retrieve_principles(principle_query, top_k=3)
+    principles = retrieve_governing_principles(agreement, quant, sent)
 
     findings = {
         "as_of": quant["as_of"],
@@ -445,6 +441,64 @@ def risk_manager_node(state: CommitteeState) -> dict:
         fallback,
     )
     return {"risk": findings, "reports": {"risk_manager": prose}}
+
+
+def principle_queries(agreement: str, quant: dict, sent: dict) -> list[str]:
+    """One short query per concern the directive actually rests on.
+
+    A single combined query does not work here. The old one appended a constant
+    "position sizing and confirmation requirements" to every request, and that
+    tail dominated the embedding: across all 36 reachable decision states the
+    same two principles came back every time, only 8 distinct top-3 sets were
+    ever produced, and 8 of the 15 principles were never retrieved at all --
+    including Bull Trap and Bear Trap, which this very node diagnoses two dozen
+    lines above.
+
+    Asking one focused question per concern instead keeps each concern
+    represented rather than letting the loudest phrase win. Note this affects
+    only the principles cited in the write-up: the directive is already decided
+    by the time we get here.
+    """
+    queries = []
+
+    # 1. Sizing. Always asked -- position_pct rests on it either way.
+    if quant["volatility_regime"] == "high":
+        queries.append("realised volatility is in the top quintile of its "
+                       "trailing distribution; cut position size and widen "
+                       "forecast intervals")
+    else:
+        queries.append("how large a position does a forecast with a narrow "
+                       "expected edge justify")
+
+    # 2. What the two evidence streams are doing.
+    queries.append({
+        "conflicting": "the price forecast and the news sentiment point in "
+                       "opposite directions; bull trap or bear trap",
+        "aligned": "two independent evidence streams confirm the same direction",
+        "no_signal": "the forecast is flat and provides no direction to act on",
+    }.get(agreement,
+          "news sentiment is neutral and offers no confirmation of the forecast"))
+
+    # 3. Crowding, only when the sentiment critic actually raised it.
+    if sent.get("contrarian_flag"):
+        queries.append("news coverage is uniformly one-sided; crowded attention "
+                       "and contrarian warning")
+    return queries
+
+
+def retrieve_governing_principles(agreement: str, quant: dict, sent: dict,
+                                  per_query: int = 2, cap: int = 4) -> list[dict]:
+    """Principles for the write-up: top ``per_query`` per concern, de-duplicated."""
+    retriever = get_retriever()
+    seen: set[str] = set()
+    out: list[dict] = []
+    for query in principle_queries(agreement, quant, sent):
+        for principle in retriever.retrieve_principles(query, top_k=per_query):
+            name = principle.get("principle")
+            if name not in seen:
+                seen.add(name)
+                out.append(principle)
+    return out[:cap]
 
 
 def _render_risk_report(f: dict, quant: dict, sent: dict) -> str:

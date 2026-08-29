@@ -369,10 +369,40 @@ and issues the directive under two gates.
 
 A note on the scale of that knowledge base, since the phrase invites a larger
 picture: it is **three markdown files we wrote ourselves, 87 lines and 15
-chunks in total**, and the agent retrieves 3 of the 15 per decision. It is a
-citation layer that makes each directive traceable to a stated principle, not a
-corpus, and it does not enter the decision rule — the gates below are computed
-from model output alone.
+chunks in total**, and the agent retrieves up to 4 of the 15 per decision. It
+is a citation layer that makes each directive traceable to a stated principle,
+not a corpus, and it does not enter the decision rule — the gates below are
+computed from model output alone.
+
+**How those principles are selected, and why it had to change.** The first
+implementation sent a single query per decision that ended in a constant
+`"position sizing and confirmation requirements"`. Measured across all 36
+reachable decision states, that tail dominated the embedding: the same two
+principles were returned **36 times out of 36**, only 8 distinct result sets
+were ever produced, and **8 of the 15 principles were never retrieved at all**
+— the entire behavioural-finance file among them, including Bull Trap and Bear
+Trap, which this node diagnoses explicitly a few lines earlier.
+
+The size of the knowledge base was not the binding constraint; the query was.
+Adding material would have left the same two principles winning and simply
+raised the count of unreachable chunks. The node now asks **one short question
+per concern** the directive rests on — sizing, what the two evidence streams are
+doing, and crowding when the sentiment critic has flagged it — and merges the
+top two of each, de-duplicated:
+
+| | before | after |
+|---|---|---|
+| Principles ever retrieved | 7 / 15 | **10 / 15** |
+| Trap principles on a conflicting state | never | **always** |
+
+The five that remain unreached (Mr. Market, Speculation versus Investment,
+Defensive Allocation Rule, Consistency and Discipline, Narrative-Driven
+Overreaction) are reference material for which the Risk Manager has no
+corresponding concern to ask about. That is a fair description of their status
+and is not presented as retrieval coverage.
+
+This changes only the principles cited in the write-up. The directive is already
+decided by the time they are fetched.
 
 The two gates:
 
