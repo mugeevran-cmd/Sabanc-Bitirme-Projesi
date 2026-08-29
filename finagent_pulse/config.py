@@ -136,8 +136,17 @@ HIGH_VOL_PERCENTILE = 0.80
 # development split of the benchmark (seed 7) that is disjoint from the split
 # used to report the ablation results (seed 42).
 # The dense arm is fixed at 1.0 and the others are expressed relative to it.
-# The dev-split objective surface is flat (nDCG@10 spans 0.172-0.176 across the
-# whole grid), so these are the argmax of a shallow optimum rather than a
-# sharply tuned setting -- the fusion is not sensitive to them.
+#
+# The 35-point dev grid spans nDCG@10 0.1389-0.1756, and the two axes behave
+# very differently:
+#   The BM25 weight matters. At w=0 the grid mean is 0.1472, against 0.1727
+#   across 0.45-0.80, so the sparse arm carries real signal and this weight is
+#   worth calibrating.
+#   The KG weight barely does. The best configuration with the expanded arms
+#   switched off entirely scores 0.1736 against 0.1756 with them on (+1.1%), and
+#   the grid mean falls monotonically above 0.25 (0.1698 -> 0.1667 -> 0.1643 ->
+#   0.1619). 0.25 is the argmax of a genuinely shallow optimum; the arm is kept
+#   for what it does on keyword queries, not because the calibration demands it.
+#   See reports/TECHNICAL_REPORT.md section 5.4.
 BM25_WEIGHT = 0.80
 KG_ARM_WEIGHT = 0.25

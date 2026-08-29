@@ -223,9 +223,17 @@ original, preserving user intent while adding recall.
 ranks rather than scores because cosine similarity and BM25 are on incomparable
 scales. Arm weights were grid-searched on a **development split (seed 7)
 disjoint from the reported benchmark (seed 42)**: dense 1.0, sparse 0.80,
-expanded arms 0.25. The objective surface is flat — nDCG@10 spans 0.172–0.176
-across the entire grid — so these are the argmax of a shallow optimum, and the
-fusion is not sensitive to them.
+expanded arms 0.25.
+
+The 35-point grid spans nDCG@10 **0.1389–0.1756**, and the two axes are not
+alike. The sparse weight matters: at `bm25_weight = 0` the grid mean is 0.1472
+against 0.1727 across 0.45–0.80, so BM25 carries real signal and this weight is
+worth calibrating. The expansion weight does not: the best configuration with the
+KG arms switched off entirely scores 0.1736 against 0.1756 with them on
+(**+1.1%**), and the grid mean falls monotonically once the weight exceeds 0.25
+(0.1698 → 0.1667 → 0.1643 → 0.1619). So 0.25 is the argmax of a genuinely shallow
+optimum, and the accurate summary is that the fusion is sensitive to the sparse
+weight and insensitive to the expansion weight.
 
 ### 5.2 Ablation protocol
 
@@ -271,17 +279,29 @@ the other. BM25 posts the best MRR in the whole study on keyword queries
 because a natural-language question shares no rare terms with any headline.
 The dense index is the mirror image: best on semantic, mediocre on keyword.
 
-The fused modes never collapse. On macro average `hybrid_kg` leads on nDCG
-(0.1738) and MRR (0.4267) and `hybrid` on recall (0.1499), both ahead of either
-component alone. The margin over pure dense retrieval is modest — **+5.0% nDCG,
-+0.3% recall** — and it should be reported as modest.
+The fused modes never collapse. On macro average `hybrid_kg` posts the top nDCG
+(0.1738) and MRR (0.4267) and `hybrid` the top recall (0.1499), both ahead of
+either component alone. The margin over pure dense retrieval is modest —
+**+5.0% nDCG, +0.3% recall** — and it should be reported as modest. The gap
+between the two fused modes is not a result at all: 0.17382 against 0.17372 is
+**+0.06%**, well inside the noise of a 136-query benchmark carrying no
+significance test.
 
 The honest reading is that the fused system's value is *variance reduction*: it
 guarantees never landing in BM25's semantic-query failure mode, at the cost of
 giving up BM25's keyword-query peak. For a system whose queries are written by
-an agent in unpredictable phrasing, that trade is worth making. Knowledge-graph
-expansion adds a further small gain on keyword queries (+0.5% nDCG over
-`hybrid`) and is roughly neutral on semantic ones.
+an agent in unpredictable phrasing, that trade is worth making.
+
+**Knowledge-graph expansion is the component this study does not manage to
+justify.** Against `hybrid` it buys **+1.6% nDCG on keyword queries** and costs
+**−5.1% on semantic ones**; the two very nearly cancel, which is exactly why the
+macro average moves by +0.06%. The weight calibration reaches the same conclusion
+independently (§5.1): switching the expanded arms off costs 1.1% on the
+development split, and every weight above 0.25 makes matters worse. The arm is
+retained because keyword-style queries are the ones it helps, but on this
+benchmark its contribution is not distinguishable from noise and it is not
+reported as a win. Deciding whether the keyword-side gain is real requires a
+paired significance test this study does not yet run (§8, item 8).
 
 ---
 
@@ -405,6 +425,11 @@ signal-confirmation rule.
    ~223 windows and 75 committee decisions is a small sample.
 7. **Headline sentiment is not predictive** (§3.1). This bounds what any
    news-driven component of the system can contribute.
+8. **The knowledge-graph arm is not shown to help** (§5.4). Its macro-average
+   contribution is +0.06% nDCG and the weight calibration puts it at +1.1%; both
+   are within the noise of this benchmark. No paired significance test is run on
+   the per-query scores, so no retrieval comparison in this report — including
+   the +5.0% margin over dense-only — carries a confidence interval.
 
 ## 9. Reproducing
 
