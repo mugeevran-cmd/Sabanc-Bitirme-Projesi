@@ -1,13 +1,13 @@
 comparison,query_style,question,mean_difference,ci_low,ci_high,p_value,n_queries,significant
-hybrid - vector,keyword,does fusing BM25 in beat dense-only?,0.04032355146321139,0.02426202005388959,0.05662267685376777,0.0,136,True
-hybrid - vector,semantic,does fusing BM25 in beat dense-only?,-0.02484922233822786,-0.03891588832805625,-0.011300986321878051,0.0,136,True
-hybrid - vector,pooled,does fusing BM25 in beat dense-only?,0.007737164562491768,-0.0033185853139366945,0.018908389847699374,0.1746,272,False
-hybrid_kg - vector,keyword,does the full stack beat dense-only?,0.045599006715755994,0.027472344436015064,0.06379522776560077,0.0,136,True
-hybrid_kg - vector,semantic,does the full stack beat dense-only?,-0.028862609894132592,-0.04632362901236562,-0.013244820723413497,0.0,136,True
-hybrid_kg - vector,pooled,does the full stack beat dense-only?,0.008368198410811701,-0.00453842323666217,0.02138499426573895,0.2036,272,False
-hybrid_kg - hybrid,keyword,does the knowledge-graph arm add anything?,0.0052754552525446086,-0.003368247654227191,0.014251053727524323,0.2412,136,False
-hybrid_kg - hybrid,semantic,does the knowledge-graph arm add anything?,-0.0040133875559047365,-0.012610676037902679,0.0025662432677303927,0.2962,136,False
-hybrid_kg - hybrid,pooled,does the knowledge-graph arm add anything?,0.0006310338483199361,-0.005200163253947739,0.006475100442312702,0.8248,272,False
-hybrid - bm25,keyword,does fusing dense in beat sparse-only?,-0.0036191336110259226,-0.03173667484313345,0.02591923081299884,0.8032,136,False
-hybrid - bm25,semantic,does fusing dense in beat sparse-only?,0.06547858966759813,0.044357403673764215,0.08857406940234817,0.0,136,True
-hybrid - bm25,pooled,does fusing dense in beat sparse-only?,0.030929728028286113,0.01210238956599512,0.04960313578955608,0.0022,272,True
+hybrid - vector,keyword,does fusing BM25 in beat dense-only?,0.025627484230997973,0.006236324801733999,0.04414037391507818,0.0094,136,True
+hybrid - vector,semantic,does fusing BM25 in beat dense-only?,-0.0037583760276946486,-0.017357935130703054,0.01044994362047718,0.5932,136,False
+hybrid - vector,pooled,does fusing BM25 in beat dense-only?,0.010934554101651662,-0.0009415833131168291,0.02267242388439306,0.0678,272,False
+hybrid_kg - vector,keyword,does the full stack beat dense-only?,0.03679459417794212,0.015910913080375413,0.05674504139875576,0.0004,136,True
+hybrid_kg - vector,semantic,does the full stack beat dense-only?,-0.007094985519121864,-0.023213008937950953,0.009752478406345662,0.3918,136,False
+hybrid_kg - vector,pooled,does the full stack beat dense-only?,0.014849804329410125,0.0012959114155227719,0.028048287800218376,0.0288,272,True
+hybrid_kg - hybrid,keyword,does the knowledge-graph arm add anything?,0.011167109946944141,0.003470891866927564,0.020236645394391278,0.003,136,True
+hybrid_kg - hybrid,semantic,does the knowledge-graph arm add anything?,-0.003336609491427216,-0.012695381682617454,0.00557081343534448,0.4672,136,False
+hybrid_kg - hybrid,pooled,does the knowledge-graph arm add anything?,0.003915250227758463,-0.0023387625772505155,0.010186963018253375,0.2148,272,False
+hybrid - bm25,keyword,does fusing dense in beat sparse-only?,0.020415056641810397,-0.005832452947841512,0.046018663478478945,0.121,136,False
+hybrid - bm25,semantic,does fusing dense in beat sparse-only?,0.053526043943147986,0.03520769379738698,0.0736389754948883,0.0,136,True
+hybrid - bm25,pooled,does fusing dense in beat sparse-only?,0.03697055029247919,0.020922691759581828,0.053168413837083955,0.0,272,True

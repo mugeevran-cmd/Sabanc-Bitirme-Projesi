@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import random
 import re
 
@@ -67,14 +68,40 @@ def _content_words(text: str) -> list[str]:
     return [w for w in words if w not in _STOP and len(w) > 2]
 
 
-def build_benchmark(docs: pd.DataFrame, n_queries: int = 150, seed: int = 42) -> list[dict]:
+# Share of the seed pool reserved for tuning. Assignment is by a hash of the
+# document id, not by row position, so it survives re-indexing and any change in
+# corpus size -- a document is always in the same partition.
+DEV_SHARE = 0.25
+
+
+def partition_of(doc_id: str) -> str:
+    """Return "dev" or "eval" for a document, deterministically and forever."""
+    digest = hashlib.blake2b(doc_id.encode(), digest_size=8).digest()
+    return "dev" if int.from_bytes(digest, "big") % 1000 < DEV_SHARE * 1000 else "eval"
+
+
+def build_benchmark(docs: pd.DataFrame, n_queries: int = 150, seed: int = 42,
+                    split: str = "eval") -> list[dict]:
+    """Build the query benchmark from one partition of the seed pool.
+
+    ``split="dev"`` for weight calibration, ``split="eval"`` for the reported
+    ablation. Previously both drew from the whole pool with different random
+    seeds and the disjointness was asserted in prose rather than enforced: two
+    seeds can land on the same document, and even when they do not, the +/-15
+    day relevance clusters mean a dev query and an eval query can share almost
+    all of their relevant sets. Now a document belongs to exactly one partition
+    and the tuning split cannot leak into the reported one.
+    """
+    if split not in ("dev", "eval"):
+        raise ValueError(f'split must be "dev" or "eval", got {split!r}')
     rng = random.Random(seed)
 
     docs = docs.copy()
     docs["entities"] = docs["entities_str"].map(lambda s: s.split("|") if s else [])
     docs["n_ent"] = docs["entities"].str.len()
-    pool = docs[docs["n_ent"] >= 2].reset_index(drop=True)
-    log.info("Benchmark pool: %d headlines with >=2 entities", len(pool))
+    pool = docs[docs["n_ent"] >= 2]
+    pool = pool[pool["doc_id"].map(partition_of) == split].reset_index(drop=True)
+    log.info("Benchmark pool [%s]: %d headlines with >=2 entities", split, len(pool))
 
     dates = pd.to_datetime(docs["date_str"])
     ent_sets = docs["entities"].map(set).to_numpy()
@@ -203,7 +230,7 @@ def paired_bootstrap(a: list[float], b: list[float], n_boot: int = 10000,
 
 def run_ablation(n_queries: int = 150, top_k: int = 10, save: bool = True) -> pd.DataFrame:
     retriever = get_retriever()
-    queries = build_benchmark(retriever.docs, n_queries=n_queries)
+    queries = build_benchmark(retriever.docs, n_queries=n_queries, split="eval")
 
     rows = []
     # Per-query scores are kept so the modes can be compared as paired samples
@@ -295,7 +322,7 @@ def significance_table(per_query_scores: dict, metric: str = "ndcg@k",
 # --------------------------------------------------------------------------
 CALIBRATION_PATH = config.REPORTS / "rag_weight_calibration.csv"
 
-DEV_SEED = 7          # disjoint from the seed used for the reported ablation
+DEV_SEED = 7          # sampling seed within the dev partition
 
 
 def calibrate(n_queries: int = 60, top_k: int = 10,
@@ -304,12 +331,13 @@ def calibrate(n_queries: int = 60, top_k: int = 10,
               save: bool = True) -> pd.DataFrame:
     """Grid-search the fusion weights on a development split.
 
-    Run on ``DEV_SEED`` queries, which are disjoint from the ``seed=42`` split
-    used to report the ablation, so the headline numbers are never tuned on
-    the data they are reported against.
+    Runs on the ``dev`` partition of the seed pool, which by construction shares
+    no document with the ``eval`` partition the ablation is reported on, so the
+    headline numbers are never tuned on the data they are reported against.
     """
     retriever = get_retriever()
-    queries = build_benchmark(retriever.docs, n_queries=n_queries, seed=DEV_SEED)
+    queries = build_benchmark(retriever.docs, n_queries=n_queries,
+                              seed=DEV_SEED, split="dev")
 
     rows = []
     for w_bm25 in bm25_grid:
