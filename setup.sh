@@ -51,14 +51,26 @@ if [ "${1:-}" = "--deps" ]; then
     exit 0
 fi
 
-# ---- 4. Prebuilt artifacts, if the repo ships them ----------------------
-# artifacts.zip is a convenience snapshot of the generated data, model
-# checkpoint and search indexes. Unpacking it skips the pipeline entirely.
-# Everything in it is reproducible -- delete it and run the pipeline to
-# regenerate from scratch.
-if [ -f artifacts.zip ] && [ ! -d rag_index ]; then
-    echo "→ Found artifacts.zip — unpacking prebuilt data and indexes"
-    if unzip -oq artifacts.zip; then
+# ---- 4. Prebuilt artifacts ----------------------------------------------
+# A snapshot of the generated data, model checkpoint and search indexes, kept
+# as a GitHub release asset rather than in the repository so a clone stays
+# small. Unpacking it skips the pipeline entirely. Everything in it is
+# reproducible -- delete the four folders and run the pipeline to rebuild.
+ARTIFACTS_URL="https://github.com/mugeevran-cmd/Sabanc-Bitirme-Projesi/releases/download/artifacts-v1/artifacts.zip"
+
+# Test for sentinel FILES, not for the directories. config.py creates all four
+# directories on import, so `[ ! -d rag_index ]` skips the unpack on any
+# checkout where the package has merely been imported once -- and then silently
+# runs the full 8-minute pipeline instead.
+if [ ! -f models_out/bilstm.pt ] || [ ! -d rag_index/chroma ]; then
+    if [ ! -f artifacts.zip ]; then
+        echo "→ Downloading prebuilt artifacts (46 MB)"
+        if ! curl -fL --progress-bar -o artifacts.zip "$ARTIFACTS_URL"; then
+            echo "! Download failed; falling back to the full pipeline"
+            rm -f artifacts.zip
+        fi
+    fi
+    if [ -f artifacts.zip ] && unzip -oq artifacts.zip; then
         echo "✓ Artifacts unpacked; skipping the ~8 minute pipeline"
         echo "  (delete data_raw/ data_processed/ models_out/ rag_index/ and"
         echo "   re-run this script to rebuild everything from source)"
@@ -72,7 +84,7 @@ if [ -f artifacts.zip ] && [ ! -d rag_index ]; then
 DONE
         exit 0
     fi
-    echo "! Could not unpack artifacts.zip; falling back to the full pipeline"
+    echo "! Could not unpack the artifacts; falling back to the full pipeline"
 fi
 
 # ---- 5. Pipeline --------------------------------------------------------

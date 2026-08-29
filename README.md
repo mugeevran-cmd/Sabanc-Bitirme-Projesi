@@ -39,15 +39,17 @@ git clone https://github.com/mugeevran-cmd/Sabanc-Bitirme-Projesi.git
 cd Sabanc-Bitirme-Projesi
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
+Invoke-WebRequest -Uri "https://github.com/mugeevran-cmd/Sabanc-Bitirme-Projesi/releases/download/artifacts-v1/artifacts.zip" -OutFile artifacts.zip
 Expand-Archive artifacts.zip -DestinationPath . -Force
 .venv\Scripts\streamlit run finagent_pulse\app\streamlit_app.py
 ```
 
 ### How long this takes
 
-`setup.sh` installs the dependencies and then looks for **`artifacts.zip`**, a
-46 MB snapshot of the generated dataset, model checkpoint and search indexes
-that ships with the repository. When it finds it, the pipeline is skipped
+`setup.sh` installs the dependencies and then downloads **`artifacts.zip`**, a
+46 MB snapshot of the generated dataset, model checkpoint and search indexes,
+published as a [release asset](https://github.com/mugeevran-cmd/Sabanc-Bitirme-Projesi/releases/tag/artifacts-v1)
+rather than committed, so a clone stays small. With it the pipeline is skipped
 entirely and setup finishes in about **five minutes** — essentially the time it
 takes pip to download PyTorch.
 
@@ -131,7 +133,8 @@ and testable. See §2.1 of the technical report.
 | R² in return space / price space | −0.020 / 0.934 |
 | Sentiment vs same-day return | r = **+0.573** (block-bootstrap p = 0.0002) |
 | Sentiment vs next-day return | r = −0.045 (p = 0.50) — **not predictive** |
-| Hybrid RAG vs dense-only (macro nDCG@10) | 0.1738 vs 0.1655 (**+5.0%**) |
+| Hybrid RAG vs dense-only (macro nDCG@10) | 0.1739 vs 0.1655 (+5.1%, **p = 0.20 — not significant**) |
+| Hybrid RAG vs sparse-only (macro nDCG@10) | 0.1733 vs 0.1424 (+21.7%, **p = 0.002**) |
 | BM25 on natural-language queries | nDCG 0.0136 — a **20× collapse** |
 | Committee: abstained / traded | 84% / 16%; 75% hit rate on **12 trades** (9/12, p = 0.07, 95% CI [0.47, 0.91]) |
 
@@ -149,9 +152,12 @@ negative or counter-intuitive and they shaped the design:
   against a naive baseline (+3.77% vs +2.97%). The decision layer consumes
   direction and ignores magnitude, so the combined model is the right pick —
   but both numbers belong in the same sentence. See §4.3.
-- **Hybrid retrieval buys robustness, not a higher peak.** Each single retriever
-  wins on the query style that suits it and collapses on the other; the fused
-  system is the only one that never collapses.
+- **Hybrid retrieval buys robustness, not a higher peak — and only against
+  sparse retrieval.** A paired bootstrap puts the fused system's margin over the
+  dense index at p = 0.20: we cannot claim it retrieves better than dense-only.
+  What is significant is that it beats BM25 (p = 0.002) by never entering BM25's
+  semantic-query collapse, and that the per-style trade-off is real in both
+  directions (+0.040 keyword, −0.025 semantic, both p < 0.001). See §5.4.1.
 
 ## Project layout
 
@@ -198,6 +204,12 @@ All randomness is seeded: 42/1337/2024 for the forecaster ensemble, 42 for the
 retrieval benchmark, 7 for the disjoint weight-calibration split. Splits are
 chronological with an embargo at each boundary; scalers are fitted on training
 rows only. Re-running the pipeline reproduces every number in the report.
+
+## License
+
+None. This is coursework for DA592, published so it can be read and reviewed —
+**all rights reserved by the authors**. Nothing here is licensed for reuse,
+redistribution or derivative work; if you want to use any part of it, ask us.
 
 ---
 

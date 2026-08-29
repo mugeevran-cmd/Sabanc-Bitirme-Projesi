@@ -288,12 +288,44 @@ because a natural-language question shares no rare terms with any headline.
 The dense index is the mirror image: best on semantic, mediocre on keyword.
 
 The fused modes never collapse. On macro average `hybrid_kg` posts the top nDCG
-(0.1738) and MRR (0.4267) and `hybrid` the top recall (0.1499), both ahead of
-either component alone. The margin over pure dense retrieval is modest —
-**+5.0% nDCG, +0.3% recall** — and it should be reported as modest. The gap
-between the two fused modes is not a result at all: 0.17382 against 0.17372 is
-**+0.06%**, well inside the noise of a 136-query benchmark carrying no
-significance test.
+(0.1739) and MRR (0.4267) and `hybrid` the top recall (0.1499), both ahead of
+either component alone.
+
+### 5.4.1 Which of these differences are real
+
+Every mode is scored on the same queries, so the comparisons are paired and the
+per-query differences carry the evidence. `rag/evaluate.py::significance_table`
+runs a 10 000-draw paired bootstrap over them; the output is
+`reports/rag_significance.csv`.
+
+| Comparison | Query style | Δ nDCG@10 | 95% CI | p |
+|---|---|---|---|---|
+| hybrid − vector | keyword | **+0.0403** | [+0.024, +0.057] | **<0.001** |
+| hybrid − vector | semantic | **−0.0248** | [−0.039, −0.011] | **<0.001** |
+| hybrid − vector | pooled | +0.0077 | [−0.003, +0.019] | 0.175 |
+| hybrid_kg − vector | pooled | +0.0084 | [−0.005, +0.021] | 0.204 |
+| hybrid_kg − hybrid | pooled | +0.0006 | [−0.005, +0.006] | 0.825 |
+| hybrid − bm25 | pooled | **+0.0309** | [+0.012, +0.050] | **0.002** |
+
+Three things follow, and the first is uncomfortable:
+
+**The margin over dense-only is not statistically significant.** The headline
++5.0% (now +5.1%) macro-average gain over `vector` carries p = 0.20 and a
+confidence interval straddling zero. On this benchmark, at this sample size, we
+cannot claim the fused system retrieves better than the dense index alone.
+
+**The per-style trade-off, on the other hand, is strongly significant in both
+directions.** Fusion beats dense retrieval on keyword queries (+0.040,
+p < 0.001) and loses to it on semantic queries (−0.025, p < 0.001). Both effects
+are real; they very nearly cancel, and that cancellation is what produces the
+non-significant pooled figure. Reporting only the pooled number hides two
+genuine findings inside one null one.
+
+**The robustness claim survives, restated.** What the fusion demonstrably buys
+is not an edge over dense retrieval but an edge over sparse retrieval: `hybrid`
+beats `bm25` by +0.031 pooled (p = 0.002), because it never enters BM25's
+semantic-query collapse. That is a real, measured, significant property — and
+it is a different sentence from "hybrid RAG beats standard RAG".
 
 The honest reading is that the fused system's value is *variance reduction*: it
 guarantees never landing in BM25's semantic-query failure mode, at the cost of
@@ -308,8 +340,9 @@ independently (§5.1): switching the expanded arms off costs 1.1% on the
 development split, and every weight above 0.25 makes matters worse. The arm is
 retained because keyword-style queries are the ones it helps, but on this
 benchmark its contribution is not distinguishable from noise and it is not
-reported as a win. Deciding whether the keyword-side gain is real requires a
-paired significance test this study does not yet run (§8, item 8).
+reported as a win. The paired bootstrap settles it: pooled p = 0.825, and even
+the keyword-side gain it was retained for reaches only p = 0.24. There is no
+measurement in this study that justifies the knowledge-graph arm.
 
 ---
 
@@ -332,7 +365,16 @@ The index is reported to the committee and the dashboard but does **not** enter
 the directive rule — the Risk Manager gates on raw sentiment, not on this scale.
 
 **3 · Risk Manager.** Retrieves applicable principles from the knowledge base
-and issues the directive under two gates:
+and issues the directive under two gates.
+
+A note on the scale of that knowledge base, since the phrase invites a larger
+picture: it is **three markdown files we wrote ourselves, 87 lines and 15
+chunks in total**, and the agent retrieves 3 of the 15 per decision. It is a
+citation layer that makes each directive traceable to a stated principle, not a
+corpus, and it does not enter the decision rule — the gates below are computed
+from model output alone.
+
+The two gates:
 
 - **Conviction gate** — signal-to-noise ≥ 0.175.
 - **Confirmation gate** — the quantitative and sentiment channels must not
@@ -456,11 +498,17 @@ signal-confirmation rule.
    statistical power at all.
 7. **Headline sentiment is not predictive** (§3.1). This bounds what any
    news-driven component of the system can contribute.
-8. **The knowledge-graph arm is not shown to help** (§5.4). Its macro-average
-   contribution is +0.06% nDCG and the weight calibration puts it at +1.1%; both
-   are within the noise of this benchmark. No paired significance test is run on
-   the per-query scores, so no retrieval comparison in this report — including
-   the +5.0% margin over dense-only — carries a confidence interval.
+8. **The knowledge-graph arm is not shown to help, and neither is the margin
+   over dense-only** (§5.4.1). A paired bootstrap puts the KG arm at p = 0.825
+   and the fused-vs-dense margin at p = 0.20; both confidence intervals contain
+   zero. The fused system's measured advantage is over *sparse* retrieval
+   (p = 0.002), not over the dense index. A larger benchmark might separate the
+   dense comparison; 136 queries does not.
+9. **Fused-mode scores reproduce to about ±0.001 nDCG across machines**, while
+   single-retriever scores reproduce exactly. Reciprocal rank fusion reads the
+   vector index to depth 40 rather than 10, and small floating-point differences
+   in the embeddings reorder the tail. Within one machine the pipeline is
+   deterministic across processes; the tolerance applies between machines.
 
 ## 9. Reproducing
 

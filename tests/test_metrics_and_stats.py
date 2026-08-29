@@ -135,3 +135,61 @@ def test_an_unknown_key_falls_back(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "REPORTS", tmp_path)
     (tmp_path / "decision_thresholds.json").write_text(json.dumps({"other": 1.0}))
     assert config._calibrated("signal_to_noise_min", 0.175) == 0.175
+
+
+# --------------------------------------------------------------------------
+# C2 -- paired comparison between retrieval modes
+# --------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def paired():
+    from finagent_pulse.rag.evaluate import paired_bootstrap
+    return paired_bootstrap
+
+
+def test_no_difference_is_reported_as_no_difference(paired):
+    rng = np.random.default_rng(10)
+    scores = rng.random(150)
+    out = paired(list(scores), list(scores), n_boot=1000)
+    assert out["mean_difference"] == pytest.approx(0.0)
+    assert out["p_value"] == pytest.approx(1.0)
+
+
+def test_a_consistent_edge_is_detected(paired):
+    """A small but consistent per-query gain should clear significance."""
+    rng = np.random.default_rng(11)
+    b = rng.random(150)
+    a = b + rng.normal(0.02, 0.01, 150)
+    out = paired(list(a), list(b), n_boot=2000)
+    assert out["mean_difference"] > 0
+    assert out["ci_low"] > 0
+    assert out["p_value"] < 0.05
+
+
+def test_a_wash_is_not_detected(paired):
+    """Equal-and-opposite per-query effects must not read as a result.
+
+    This is the hybrid_kg case: a keyword-side gain and a semantic-side loss
+    that cancel. Pooled, that is not evidence of anything.
+    """
+    rng = np.random.default_rng(12)
+    b = rng.random(200)
+    a = b + np.concatenate([rng.normal(+0.05, 0.02, 100),
+                            rng.normal(-0.05, 0.02, 100)])
+    out = paired(list(a), list(b), n_boot=2000)
+    assert out["p_value"] > 0.05
+    assert out["ci_low"] < 0 < out["ci_high"]
+
+
+def test_the_interval_brackets_the_estimate(paired):
+    rng = np.random.default_rng(13)
+    b = rng.random(120)
+    a = b + rng.normal(0.03, 0.05, 120)
+    out = paired(list(a), list(b), n_boot=2000)
+    assert out["ci_low"] < out["mean_difference"] < out["ci_high"]
+    assert out["n_queries"] == 120
+
+
+def test_paired_bootstrap_is_seeded(paired):
+    rng = np.random.default_rng(14)
+    a, b = rng.random(100), rng.random(100)
+    assert paired(list(a), list(b), n_boot=500) == paired(list(a), list(b), n_boot=500)

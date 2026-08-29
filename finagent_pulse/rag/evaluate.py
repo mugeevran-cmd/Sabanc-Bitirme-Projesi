@@ -171,11 +171,44 @@ def score_ranking(retrieved_ids: list[str], relevant: set[str], k: int) -> dict:
 # --------------------------------------------------------------------------
 # Ablation
 # --------------------------------------------------------------------------
+SIGNIFICANCE_CSV = config.REPORTS / "rag_significance.csv"
+
+
+def paired_bootstrap(a: list[float], b: list[float], n_boot: int = 10000,
+                     seed: int = 42) -> dict:
+    """Paired bootstrap over per-query score differences.
+
+    The modes are scored on the *same* queries, so the comparison is paired and
+    the per-query differences are what carry the evidence. Resampling queries
+    with replacement gives a confidence interval for the mean difference; p is
+    the share of resamples that land on the other side of zero, doubled for a
+    two-sided test.
+
+    Without this a 0.008 nDCG gap and a 0.0001 one look equally like results.
+    """
+    d = np.asarray(a, dtype=float) - np.asarray(b, dtype=float)
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(d), size=(n_boot, len(d)))
+    means = d[idx].mean(axis=1)
+    lo, hi = np.percentile(means, [2.5, 97.5])
+    tail = min((means <= 0).mean(), (means >= 0).mean())
+    return {
+        "mean_difference": float(d.mean()),
+        "ci_low": float(lo),
+        "ci_high": float(hi),
+        "p_value": float(min(1.0, 2 * tail)),
+        "n_queries": int(len(d)),
+    }
+
+
 def run_ablation(n_queries: int = 150, top_k: int = 10, save: bool = True) -> pd.DataFrame:
     retriever = get_retriever()
     queries = build_benchmark(retriever.docs, n_queries=n_queries)
 
     rows = []
+    # Per-query scores are kept so the modes can be compared as paired samples
+    # rather than as two means with no interval attached.
+    per_query_scores: dict[tuple[str, str], list[dict]] = {}
     for style in ("keyword", "semantic"):
         field = f"{style}_query"
         for mode in MODES:
@@ -184,6 +217,7 @@ def run_ablation(n_queries: int = 150, top_k: int = 10, save: bool = True) -> pd
                 docs, _ = retriever.retrieve(q[field], mode=mode, top_k=top_k)
                 per_query.append(
                     score_ranking([d.doc_id for d in docs], set(q["relevant"]), top_k))
+            per_query_scores[(style, mode)] = per_query
             agg = {m: float(np.mean([p[m] for p in per_query])) for m in per_query[0]}
             rows.append({"query_style": style, "mode": mode,
                          "n_queries": len(queries), **agg})
@@ -191,6 +225,7 @@ def run_ablation(n_queries: int = 150, top_k: int = 10, save: bool = True) -> pd
                      style, mode, top_k, agg["recall@k"], agg["ndcg@k"], agg["mrr"])
 
     df = pd.DataFrame(rows)
+    sig = significance_table(per_query_scores, save=save)
 
     # Macro-average across both query styles: the headline robustness number.
     overall = (df.groupby("mode")[["recall@k", "precision@5", "mrr", "ndcg@k"]]
@@ -206,8 +241,53 @@ def run_ablation(n_queries: int = 150, top_k: int = 10, save: bool = True) -> pd
             "n_queries": len(queries),
             "protocol": "degraded known-item; relevant = >=2 shared entities within +/-15 days",
             "results": df.to_dict("records"),
+            "significance": sig.to_dict("records"),
         }, indent=2))
     return df
+
+
+# --------------------------------------------------------------------------
+# Significance
+# --------------------------------------------------------------------------
+# Which comparisons the report actually makes, and therefore has to defend.
+COMPARISONS = [
+    ("hybrid", "vector", "does fusing BM25 in beat dense-only?"),
+    ("hybrid_kg", "vector", "does the full stack beat dense-only?"),
+    ("hybrid_kg", "hybrid", "does the knowledge-graph arm add anything?"),
+    ("hybrid", "bm25", "does fusing dense in beat sparse-only?"),
+]
+
+
+def significance_table(per_query_scores: dict, metric: str = "ndcg@k",
+                       save: bool = True) -> pd.DataFrame:
+    """Paired bootstrap for every mode comparison the report leans on.
+
+    Reported per query style and pooled across both, because the macro average
+    is where the headline numbers come from and it is also where two opposing
+    per-style effects can cancel into a meaningless difference.
+    """
+    rows = []
+    styles = ("keyword", "semantic")
+    for better, worse, question in COMPARISONS:
+        for style in styles:
+            a = [p[metric] for p in per_query_scores[(style, better)]]
+            b = [p[metric] for p in per_query_scores[(style, worse)]]
+            rows.append({"comparison": f"{better} - {worse}", "query_style": style,
+                         "question": question, **paired_bootstrap(a, b)})
+        a = [p[metric] for st in styles for p in per_query_scores[(st, better)]]
+        b = [p[metric] for st in styles for p in per_query_scores[(st, worse)]]
+        rows.append({"comparison": f"{better} - {worse}", "query_style": "pooled",
+                     "question": question, **paired_bootstrap(a, b)})
+
+    out = pd.DataFrame(rows)
+    out["significant"] = out["p_value"] < 0.05
+    for r in out.itertuples():
+        log.info("%-22s %-9s diff=%+.4f CI[%+.4f,%+.4f] p=%.3f %s",
+                 r.comparison, r.query_style, r.mean_difference, r.ci_low,
+                 r.ci_high, r.p_value, "*" if r.significant else "")
+    if save:
+        out.to_csv(SIGNIFICANCE_CSV, index=False)
+    return out
 
 
 # --------------------------------------------------------------------------

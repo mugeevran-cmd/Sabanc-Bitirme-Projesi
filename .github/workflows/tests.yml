@@ -1,0 +1,37 @@
+name: tests
+
+# The suite stubs the retriever and the language model and uses synthetic
+# frames, so it needs the dependencies installed but never the pipeline run,
+# the Kaggle corpus, or any model weights.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run the test suite
+        run: pytest
+
+      - name: Lint
+        run: |
+          pip install pyflakes
+          pyflakes finagent_pulse tests
