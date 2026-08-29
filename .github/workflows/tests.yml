@@ -32,6 +32,4 @@ jobs:
         run: pytest
 
       - name: Lint
-        run: |
-          pip install pyflakes
-          pyflakes finagent_pulse tests
+        run: pyflakes finagent_pulse tests

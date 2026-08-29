@@ -7,7 +7,6 @@ the same date and the same data. These tests exist so that cannot come back.
 """
 from __future__ import annotations
 
-import pandas as pd
 import pytest
 
 from finagent_pulse.models.sentiment import (
