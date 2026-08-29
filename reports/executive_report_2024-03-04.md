@@ -21,7 +21,7 @@ The market is in a **normal-volatility** regime (43% percentile of the trailing 
 
 FinBERT scores the 31 headlines attached to **2024-03-04** at a mean sentiment of **-0.161**, a **neutral** reading. The 5-day average stands at **+0.013** against a 20-day baseline of **+0.056**, a shift of **-0.042**.
 
-On the Market Fear & Greed scale — sentiment percentile-ranked across 2018-2024 — this sits at **32/100**. Coverage volume is **+1.4 sigma** versus its 60-day norm.
+On the Market Fear & Greed scale — 20-day smoothed sentiment percentile-ranked against everything known up to this date — this sits at **88/100**. Coverage volume is **+1.4 sigma** versus its 60-day norm.
 
 Hybrid retrieval over the trailing 14 days surfaced 8 headlines. The dominant drivers are `SP500` (8), `RALLY` (3), `JPM` (1), `GS` (1), `BAC` (1).
 The knowledge graph expanded the query toward `EARNINGS`, `FED`, `INFLATION`, `SELLOFF`, surfacing related themes the literal query would have missed.

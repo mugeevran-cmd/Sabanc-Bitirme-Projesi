@@ -95,16 +95,55 @@ def score_corpus(force: bool = False) -> pd.DataFrame:
 
 # --------------------------------------------------------------------------
 # Fear & Greed index
+#
+# One definition, exposed two ways: ``fear_greed_index`` for a whole series and
+# ``fear_greed_at`` for a single decision date. Both smooth first and rank
+# point-in-time, so the dashboard and the committee can never disagree about
+# what the number is.
 # --------------------------------------------------------------------------
-def fear_greed_index(features: pd.DataFrame, window: int = 20) -> pd.Series:
+FEAR_GREED_WINDOW = 20         # sessions of smoothing before ranking
+FEAR_GREED_MIN_HISTORY = 20    # ranked sessions needed before a value means anything
+
+
+def _smoothed_sentiment(features: pd.DataFrame, window: int) -> pd.Series:
+    return features["sent_mean"].rolling(window, min_periods=5).mean()
+
+
+def fear_greed_index(features: pd.DataFrame,
+                     window: int = FEAR_GREED_WINDOW) -> pd.Series:
     """Map smoothed daily sentiment onto a 0-100 'Market Fear & Greed' scale.
 
     The raw signed sentiment is smoothed over ``window`` sessions and then
-    percentile-ranked against the full study period, so 50 means "as calm as a
-    typical day in 2018-2024" rather than an arbitrary absolute level.
+    percentile-ranked *point-in-time*: each session is ranked only against the
+    sessions that preceded it. 50 therefore means "as calm as a typical day so
+    far", and the value a historical date carries is one that could actually
+    have been computed on that date.
+
+    Ranking against the whole 2018-2024 sample instead would leak the future
+    into every backtested decision, so the expanding form is the only one
+    exposed.
     """
-    smoothed = features["sent_mean"].rolling(window, min_periods=5).mean()
-    return (smoothed.rank(pct=True) * 100).round(1)
+    smoothed = _smoothed_sentiment(features, window).dropna()
+    ranked = (smoothed.expanding(min_periods=FEAR_GREED_MIN_HISTORY)
+              .apply(lambda w: (w <= w[-1]).mean(), raw=True) * 100)
+    return ranked.reindex(features.index).round(1)
+
+
+def fear_greed_at(features: pd.DataFrame,
+                  window: int = FEAR_GREED_WINDOW) -> float:
+    """Fear & Greed for the *last* row of ``features``.
+
+    ``features`` must already be truncated to the decision date; the percentile
+    is taken against that history alone. Returns a neutral 50.0 while there is
+    not yet enough history to rank against.
+
+    Equivalent by construction to ``fear_greed_index(features).iloc[-1]``, but
+    without recomputing the whole expanding series for one date.
+    """
+    smoothed = _smoothed_sentiment(features, window).dropna()
+    if len(smoothed) < FEAR_GREED_MIN_HISTORY:
+        return 50.0
+    return round(float((smoothed <= smoothed.iloc[-1]).mean() * 100), 1)
 
 
 if __name__ == "__main__":
