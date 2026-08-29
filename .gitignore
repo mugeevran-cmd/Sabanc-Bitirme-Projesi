@@ -30,3 +30,6 @@ __pycache__/
 .ipynb_checkpoints/
 .venv/
 venv/
+
+# --- Prebuilt artifacts (GitHub release asset, not tracked) ---
+artifacts.zip
