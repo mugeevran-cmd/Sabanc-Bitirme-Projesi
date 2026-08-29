@@ -369,7 +369,7 @@ signal-confirmation rule.
 | Signal agreement | 57 sentiment-neutral, 12 conflicting, 6 aligned |
 | Traps flagged | **12** |
 | Forecast directional accuracy (all decisions) | 72.0% |
-| **Hit rate when the committee traded** | **75.0%** |
+| **Hit rate when the committee traded** | **75.0%** (9 of 12) |
 | Mean sized return per decision | +0.067% |
 | Mean 7-day buy-and-hold over the same dates | +0.606% |
 
@@ -377,10 +377,28 @@ signal-confirmation rule.
 
 **Reading the backtest honestly.**
 
-- The committee **abstains 84% of the time** and beats its own baseline when it
-  acts: 75.0% hit rate on traded decisions vs 72.0% across all decisions. The
-  conviction gate selects genuinely better days, though 12 trades is a small
-  sample and the difference is not statistically significant.
+- The committee **abstains 84% of the time** and appears to beat its own
+  baseline when it acts: 75.0% hit rate on traded decisions vs 72.0% across all
+  decisions. **This is not evidence the conviction gate works.** On 12 trades,
+  9 hits gives a one-sided binomial p = 0.073 against a coin flip and a 95%
+  Wilson interval of **[0.47, 0.91]** — an interval that contains 0.5, and
+  contains 0.72 as comfortably as it contains 0.75.
+- **The 12 trades are not 12 independent observations.** Decisions are issued
+  every 3rd session while the outcome horizon is 7 sessions, so consecutive
+  trades score overlapping windows. Seven of the twelve fall inside a previous
+  trade's horizon, leaving **5 independent episodes**:
+
+  | Episode | Trades | Hits |
+  |---|---|---|
+  | 2023-07-05 → 07-21 | 5 | 4 |
+  | 2023-08-21 → 08-29 | 2 | 1 |
+  | 2023-10-06 | 1 | 1 |
+  | 2023-12-14 → 12-19 | 2 | 2 |
+  | 2024-01-22 → 01-25 | 2 | 1 |
+
+  The largest episode is 42% of all trades and is effectively a single bet on
+  the July 2023 rally. At an effective sample size of 5, no hit rate computed
+  here can separate skill from chance, and none is claimed to.
 - The sized strategy returns **+0.067% per decision against +0.606% for
   buy-and-hold**. A conservative committee that is flat 84% of the time and
   caps size near 45% *will* underperform a rising market. The test window
@@ -424,7 +442,10 @@ signal-confirmation rule.
 4. **No transaction costs, slippage or borrowing costs** in the backtest.
 5. **The short side is untested** — zero SELL directives were issued.
 6. **One market regime.** The test period is a single 11-month bull run;
-   ~223 windows and 75 committee decisions is a small sample.
+   ~223 windows and 75 committee decisions is a small sample. Worse for the
+   decision layer specifically: overlapping 7-session horizons reduce the 12
+   trades to **5 independent episodes** (§6.3), so the traded hit rate has no
+   statistical power at all.
 7. **Headline sentiment is not predictive** (§3.1). This bounds what any
    news-driven component of the system can contribute.
 8. **The knowledge-graph arm is not shown to help** (§5.4). Its macro-average

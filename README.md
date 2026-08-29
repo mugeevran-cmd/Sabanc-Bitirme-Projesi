@@ -112,15 +112,16 @@ and testable. See §2.1 of the technical report.
 
 | Result | Value |
 |---|---|
-| Directional accuracy @ 7 days (held-out test) | **73.5%** |
+| Directional accuracy @ 7 days (held-out test) | **73.5%** (price-only: 67.7%) |
+| Skill vs naive persistence (RMSE) | +2.97% — **below** price-only's +3.77% |
 | R² in return space / price space | −0.020 / 0.934 |
 | Sentiment vs same-day return | r = **+0.573** (p ≈ 1.8 × 10⁻²¹) |
 | Sentiment vs next-day return | r = −0.045 (p = 0.50) — **not predictive** |
 | Hybrid RAG vs dense-only (macro nDCG@10) | 0.1738 vs 0.1655 (**+5.0%**) |
 | BM25 on natural-language queries | nDCG 0.0136 — a **20× collapse** |
-| Committee: abstained / traded | 84% / 16%, **75% hit rate when traded** |
+| Committee: abstained / traded | 84% / 16%; 75% hit rate on **12 trades** (9/12, p = 0.07, 95% CI [0.47, 0.91]) |
 
-Three findings are worth reading in full in the report, because they are
+Four findings are worth reading in full in the report, because they are
 negative or counter-intuitive and they shaped the design:
 
 - **Headline sentiment describes the session it belongs to and does not forecast
@@ -129,6 +130,11 @@ negative or counter-intuitive and they shaped the design:
 - **The 0.93 price-space R² is not an achievement** — any model scores it when
   the target is a price level. The return-space R² near zero is the honest
   number, and directional accuracy is the metric that carries real signal.
+- **Sentiment buys direction and costs magnitude.** It lifts directional
+  accuracy 67.7% → 73.5%, but the price-only model has the better RMSE skill
+  against a naive baseline (+3.77% vs +2.97%). The decision layer consumes
+  direction and ignores magnitude, so the combined model is the right pick —
+  but both numbers belong in the same sentence. See §4.3.
 - **Hybrid retrieval buys robustness, not a higher peak.** Each single retriever
   wins on the query style that suits it and collapses on the other; the fused
   system is the only one that never collapses.
