@@ -20,6 +20,7 @@ import pandas as pd
 from finagent_pulse import config
 from finagent_pulse.agents.llm import get_writer
 from finagent_pulse.models.forecaster import ForecastService
+from finagent_pulse.models.sentiment import fear_greed_at
 from finagent_pulse.rag.hybrid import get_retriever
 
 log = logging.getLogger(__name__)
@@ -178,8 +179,10 @@ def sentiment_critic_node(state: CommitteeState) -> dict:
     sent_now = float(row["sent_mean"])
     sent_5d = float(row["sent_mean_5d"])
     sent_baseline = float(recent["sent_mean"].mean())
-    # Percentile of today's sentiment within the full study period.
-    fg_index = float((df["sent_mean"] <= sent_now).mean() * 100)
+    # Percentile of today's smoothed sentiment within the history available
+    # on the decision date. `hist`, never `df`: ranking against the full
+    # table would let sessions after `as_of` set the scale for this one.
+    fg_index = fear_greed_at(hist)
 
     entity_counts: dict[str, int] = {}
     for d in docs:
@@ -251,8 +254,9 @@ def _render_sentiment_report(f: dict, docs) -> str:
         f"**{f['sentiment_20d_baseline']:+.3f}**, a shift of "
         f"**{f['sentiment_shift']:+.3f}**.",
         "",
-        f"On the Market Fear & Greed scale — sentiment percentile-ranked across "
-        f"2018-2024 — this sits at **{f['fear_greed_index']:.0f}/100**. "
+        f"On the Market Fear & Greed scale — 20-day smoothed sentiment "
+        f"percentile-ranked against everything known up to this date — this "
+        f"sits at **{f['fear_greed_index']:.0f}/100**. "
         f"Coverage volume is **{f['coverage_zscore']:+.1f} sigma** versus its "
         "60-day norm"
         + (", an attention-driven regime in which prices reflect crowding as "

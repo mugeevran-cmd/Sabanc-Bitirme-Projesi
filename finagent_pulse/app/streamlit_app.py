@@ -189,9 +189,10 @@ def tab_dashboard(df: pd.DataFrame, as_of: pd.Timestamp) -> None:
     with right:
         st.plotly_chart(fear_greed_gauge(float(row["fear_greed"])),
                         width="stretch")
-        st.caption("Sentiment percentile-ranked across the full 2018-2024 study "
-                   "period, so 50 means a typical day rather than an absolute "
-                   "neutral level.")
+        st.caption("20-day smoothed sentiment, percentile-ranked against every "
+                   "session up to the selected date only — so 50 means a typical "
+                   "day so far, and a historical date shows the reading that was "
+                   "actually available on it.")
 
     if forecast:
         st.subheader("Projected trajectory")

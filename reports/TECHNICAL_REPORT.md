@@ -316,10 +316,12 @@ the **signal-to-noise ratio** = |7-day forecast| ÷ (20-day volatility × √7).
 Flags structural anomalies.
 
 **2 · Sentiment Critic.** Retrieves the trailing 14 days via `hybrid_kg`,
-aggregates FinBERT sentiment, computes the **Fear & Greed index** (sentiment
-percentile-ranked across 2018–2024, so 50 is a typical day rather than an
-arbitrary absolute), identifies driver entities, and raises a contrarian flag
-when coverage exceeds 70% one-sided.
+aggregates FinBERT sentiment, computes the **Fear & Greed index** (20-day
+smoothed sentiment, percentile-ranked point-in-time against the sessions
+preceding the decision date, so 50 is a typical day so far), identifies driver
+entities, and raises a contrarian flag when coverage exceeds 70% one-sided.
+The index is reported to the committee and the dashboard but does **not** enter
+the directive rule — the Risk Manager gates on raw sentiment, not on this scale.
 
 **3 · Risk Manager.** Retrieves applicable principles from the knowledge base
 and issues the directive under two gates:
