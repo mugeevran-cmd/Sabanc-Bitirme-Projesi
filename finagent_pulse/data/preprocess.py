@@ -93,9 +93,12 @@ def build_price_features(market: pd.DataFrame) -> pd.DataFrame:
         vol = pd.to_numeric(px["volume"], errors="coerce")
         px["volume_z"] = (vol - vol.rolling(60).mean()) / vol.rolling(60).std()
     else:
+        log.warning("No volume data: 'volume_z' is constant 0 for every session.")
         px["volume_z"] = 0.0
 
     px["range_pct"] = (px["high"] - px["low"]) / px["close"]
+    if px["range_pct"].abs().max() == 0:
+        log.warning("No intraday range: 'range_pct' is constant 0 for every session.")
     px["dist_ma50"] = px["close"] / px["close"].rolling(50).mean() - 1.0
     return px
 

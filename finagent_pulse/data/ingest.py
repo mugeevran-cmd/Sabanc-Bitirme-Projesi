@@ -23,8 +23,21 @@ def download_headlines(force: bool = False) -> pd.DataFrame:
         return pd.read_csv(config.HEADLINES_CSV)
 
     log.info("Downloading %s", config.KAGGLE_DATASET)
-    with urllib.request.urlopen(config.KAGGLE_DOWNLOAD_URL, timeout=180) as resp:
-        payload = resp.read()
+    try:
+        req = urllib.request.Request(
+            config.KAGGLE_DOWNLOAD_URL, headers={"User-Agent": "finagent-pulse"})
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            payload = resp.read()
+    except Exception as exc:
+        # Every downstream stage needs this file, so fail with instructions
+        # rather than an opaque URLError from four frames down.
+        raise RuntimeError(
+            f"Could not download the Kaggle corpus ({exc}).\n"
+            f"Kaggle rate-limits and sometimes requires a signed-in session. "
+            f"Download it manually from\n"
+            f"  https://www.kaggle.com/datasets/{config.KAGGLE_DATASET}\n"
+            f"and place the CSV at {config.HEADLINES_CSV}, then re-run."
+        ) from exc
 
     with zipfile.ZipFile(io.BytesIO(payload)) as zf:
         csv_name = next(n for n in zf.namelist() if n.lower().endswith(".csv"))
@@ -59,6 +72,11 @@ def _market_from_corpus() -> pd.DataFrame:
     px["low"] = px["close"]
     px["volume"] = pd.NA
     px["source"] = "kaggle_cp"
+    log.warning(
+        "Using corpus close prices: no OHLC and no volume. 'range_pct' and "
+        "'volume_z' will be constant 0 and carry no information -- 2 of the 15 "
+        "model features are dead in this mode. Results are NOT comparable with "
+        "a yfinance run; re-run with network access before reporting metrics.")
     return px
 
 
@@ -97,6 +115,9 @@ def download_market(force: bool = False) -> pd.DataFrame:
         log.warning("yfinance unavailable (%s); falling back to corpus prices", exc)
 
     if frame is None or frame.empty:
+        # Note this fallback also needs the corpus download, so a network
+        # failure that killed yfinance may well kill this too -- the error from
+        # download_headlines() says what to do about it.
         frame = _market_from_corpus()
 
     frame["Date"] = pd.to_datetime(frame["Date"])

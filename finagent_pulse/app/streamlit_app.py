@@ -78,6 +78,38 @@ def run_committee_cached(as_of: str) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Preflight
+#
+# Every tab depends on a different generated artefact. Checking them up front
+# turns "ChromaDB collection not found" three frames deep into one sentence
+# naming the missing folder and the command that builds it.
+# --------------------------------------------------------------------------
+ARTIFACTS: dict[str, tuple[Path, str]] = {
+    "Processed features": (config.FEATURES, "every tab"),
+    "Scored headlines": (config.HEADLINES_SCORED, "Corpus"),
+    "Forecaster checkpoint": (config.MODELS_OUT / "bilstm.pt",
+                              "forecast trajectory, Investment Committee"),
+    "Search indexes": (config.CHROMA_DIR, "Hybrid RAG, Investment Committee"),
+}
+
+BUILD_HINT = "Run `python -m finagent_pulse.pipeline`, or `./setup.sh` for a first-time setup."
+
+
+def missing_artifacts() -> list[tuple[str, Path, str]]:
+    return [(label, path, needed_by)
+            for label, (path, needed_by) in ARTIFACTS.items() if not path.exists()]
+
+
+def require(path: Path, what: str) -> bool:
+    """Render a clear notice and return False when ``path`` is not built yet."""
+    if path.exists():
+        return True
+    st.info(f"**{what}** is not available yet — `{path.name}` has not been built.\n\n"
+            + BUILD_HINT)
+    return False
+
+
+# --------------------------------------------------------------------------
 # Charts
 # --------------------------------------------------------------------------
 def price_and_forecast_chart(df: pd.DataFrame, as_of: pd.Timestamp,
@@ -208,6 +240,9 @@ def tab_committee(as_of: pd.Timestamp) -> None:
     st.caption("Three agents run in sequence via LangGraph. Findings and the "
                "final directive are computed deterministically; the language "
                "model only writes the explanation.")
+    if not (require(config.MODELS_OUT / "bilstm.pt", "The investment committee")
+            and require(config.CHROMA_DIR, "The investment committee")):
+        return
     if not st.button("▶︎ Convene the investment committee", type="primary"):
         st.info("Press the button to run the committee for the selected date.")
         return
@@ -237,6 +272,8 @@ def tab_committee(as_of: pd.Timestamp) -> None:
 def tab_rag() -> None:
     st.caption("Compare the four retrieval modes on the same query. This is the "
                "ablation study made interactive.")
+    if not require(config.CHROMA_DIR, "Hybrid RAG"):
+        return
     retriever = get_retriever_cached()
 
     query = st.text_input("Query",
@@ -332,10 +369,17 @@ def tab_evaluation() -> None:
     if sv:
         st.subheader("Sentiment engine validation")
         c = st.columns(4)
+        def _p(block: dict) -> str:
+            # Quote the dependence-aware p when the report carries one; older
+            # report files only have the i.i.d. Pearson p.
+            boot = block.get("p_value_block_bootstrap")
+            return (f"block-bootstrap p={boot:.4f}" if boot is not None
+                    else f"p={block['p_value']:.1e} (i.i.d.)")
+
         c[0].metric("Same-day correlation", f"{sv['corr_same_day']['r']:+.3f}",
-                    f"p={sv['corr_same_day']['p_value']:.1e}")
+                    _p(sv["corr_same_day"]))
         c[1].metric("Next-day correlation", f"{sv['corr_next_day']['r']:+.3f}",
-                    f"p={sv['corr_next_day']['p_value']:.2f}")
+                    _p(sv["corr_next_day"]))
         c[2].metric("Next-day hit rate", f"{sv['next_day_hit_rate']:.1%}")
         c[3].metric("Sessions", sv["n_sessions"])
         st.caption("FinBERT tracks *what already happened* very strongly and "
@@ -402,11 +446,22 @@ def main() -> None:
     st.caption("Multi-agent quantitative trading & sentiment analysis using "
                "Hybrid RAG and time-series forecasting — S&P 500, 2018–2024")
 
+    missing = missing_artifacts()
+    if any(label == "Processed features" for label, _, _ in missing):
+        st.error("**The pipeline has not been run yet.** The dashboard needs the "
+                 f"processed feature table at `{config.FEATURES}`.\n\n" + BUILD_HINT)
+        st.stop()
+    if missing:
+        lines = "\n".join(f"- **{label}** — `{path.name}` missing, needed by {needed_by}"
+                           for label, path, needed_by in missing)
+        st.warning("Some artefacts are missing; the tabs that need them will say so.\n\n"
+                   + lines + "\n\n" + BUILD_HINT)
+
     try:
         df = load_features()
-    except FileNotFoundError:
-        st.error("Processed data not found. Run `python -m finagent_pulse.pipeline` first.")
-        return
+    except FileNotFoundError as exc:
+        st.error(f"Could not load the feature table: {exc}\n\n" + BUILD_HINT)
+        st.stop()
 
     with st.sidebar:
         st.header("Decision date")

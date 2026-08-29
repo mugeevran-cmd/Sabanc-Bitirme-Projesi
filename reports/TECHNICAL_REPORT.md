@@ -86,10 +86,18 @@ only (223 sessions, 2023-04 → 2024-02).
 
 | Check | Result | Interpretation |
 |---|---|---|
-| Correlation with **same-day** return | **r = +0.573** (p ≈ 1.8 × 10⁻²¹) | very strong |
-| Correlation with **next-day** return | r = −0.045 (p = 0.50) | **none** |
+| Correlation with **same-day** return | **r = +0.573** (block-bootstrap p = 0.0002) | very strong |
+| Correlation with **next-day** return | r = −0.045 (block-bootstrap p = 0.49) | **none** |
 | Next-day directional hit rate | 50.8% | a coin flip |
 | Bullish vs bearish quintile, next-day return | +16.8 bp vs +21.2 bp (p = 0.75) | no separation |
+
+Both p-values come from a circular block bootstrap (5 000 draws, 10-session
+blocks), not from `pearsonr`. Sentiment and returns are each autocorrelated, so
+the i.i.d. assumption behind the textbook p-value does not hold: it reports
+1.8 × 10⁻²¹ for the same-day correlation where a dependence-aware test gives
+2 × 10⁻⁴. The conclusion is unchanged — the same-day relationship is real and
+the next-day one is absent — but only the bootstrap figure is defensible, and it
+is 17 orders of magnitude less emphatic.
 
 ![Sentiment validation](figures/04_sentiment_validation.png)
 

@@ -137,6 +137,25 @@ def _dcg(gains: list[float]) -> float:
 
 
 def score_ranking(retrieved_ids: list[str], relevant: set[str], k: int) -> dict:
+    """Rank-quality metrics for one query. Read the definitions before comparing.
+
+    Two of these are *not* the textbook forms, because relevance clusters here
+    routinely exceed ``k`` and the textbook forms would then be bounded well
+    below 1 no matter how good the ranking is:
+
+    ``recall@k``    hits / min(|relevant|, k) -- capped recall. Standard recall
+                    (hits / |relevant|) would read ~0.07 for a 140-document
+                    cluster at k=10 even for a perfect ranking. Capped recall is
+                    therefore higher than standard recall, and the two must never
+                    be compared against each other or against published figures.
+    ``precision@5`` hits@5 / min(5, |retrieved|) -- divided by what was actually
+                    returned, not by 5, so a short result list is not penalised.
+                    Identical to standard P@5 whenever 5 or more docs come back,
+                    which is the case for every query in this study.
+
+    ``mrr`` and ``ndcg@k`` are standard, with binary gains and an ideal DCG over
+    min(|relevant|, k) documents.
+    """
     top = retrieved_ids[:k]
     hits = [1.0 if d in relevant else 0.0 for d in top]
 
