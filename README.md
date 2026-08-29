@@ -114,7 +114,7 @@ and testable. See §2.1 of the technical report.
 |---|---|
 | Directional accuracy @ 7 days (held-out test) | **73.5%** |
 | R² in return space / price space | −0.020 / 0.934 |
-| Sentiment vs same-day return | r = **+0.573** (p ≈ 1.8 × 10⁻²¹) |
+| Sentiment vs same-day return | r = **+0.573** (block-bootstrap p = 0.0002) |
 | Sentiment vs next-day return | r = −0.045 (p = 0.50) — **not predictive** |
 | Hybrid RAG vs dense-only (macro nDCG@10) | 0.1738 vs 0.1655 (**+5.0%**) |
 | BM25 on natural-language queries | nDCG 0.0136 — a **20× collapse** |

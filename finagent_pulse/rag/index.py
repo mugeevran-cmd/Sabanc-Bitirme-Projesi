@@ -117,8 +117,6 @@ def build_bm25_index(docs: pd.DataFrame, force: bool = False):
 
 
 def build_kg(docs: pd.DataFrame, force: bool = False):
-    import networkx as nx
-
     if config.KG_PATH.exists() and not force:
         with open(config.KG_PATH, "rb") as fh:
             return pickle.load(fh)

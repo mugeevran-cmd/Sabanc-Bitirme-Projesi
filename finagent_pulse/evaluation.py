@@ -67,6 +67,38 @@ def forecaster_ablation(save: bool = True) -> pd.DataFrame:
 # --------------------------------------------------------------------------
 # 2. Is the sentiment signal economically meaningful?
 # --------------------------------------------------------------------------
+def _block_bootstrap_p(x, y, n_boot: int = 5000, block: int = 10,
+                       seed: int = 42) -> tuple[float, float]:
+    """Correlation and a two-sided p-value that survives autocorrelation.
+
+    ``scipy.stats.pearsonr`` assumes i.i.d. observations. Daily sentiment and
+    daily returns are both serially correlated, so its p-value is far smaller
+    than the evidence warrants -- with 230 sessions it reports 1e-21 for a
+    relationship a dependence-aware test puts at 2e-4.
+
+    The null here is built by resampling ``y`` in contiguous circular blocks:
+    that destroys any association with ``x`` while preserving ``y``'s own
+    short-range persistence, so the reference distribution has the same
+    autocorrelation as the real series. p is the share of bootstrap draws whose
+    |r| reaches the observed |r|.
+    """
+    rng = np.random.default_rng(seed)
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    n = len(x)
+    r_obs = float(np.corrcoef(x, y)[0, 1])
+    ext = np.concatenate([y, y[:block]])          # wrap around for circularity
+    n_blocks = -(-n // block)
+    hits = 0
+    for _ in range(n_boot):
+        starts = rng.integers(0, n, size=n_blocks)
+        yb = np.concatenate([ext[s:s + block] for s in starts])[:n]
+        if abs(float(np.corrcoef(x, yb)[0, 1])) >= abs(r_obs):
+            hits += 1
+    return r_obs, (hits + 1) / (n_boot + 1)
+
+
+
 def sentiment_validation(save: bool = True) -> dict:
     """Validate FinBERT output against realised market behaviour.
 
@@ -83,6 +115,10 @@ def sentiment_validation(save: bool = True) -> dict:
 
     same_r, same_p = stats.pearsonr(valid["sent_mean"], valid["log_return"])
     next_r, next_p = stats.pearsonr(valid["sent_mean"], valid["next_return"])
+    # Both series are autocorrelated, so the i.i.d. p-values above are reported
+    # alongside a block-bootstrap p rather than on their own.
+    _, same_p_boot = _block_bootstrap_p(valid["sent_mean"], valid["log_return"])
+    _, next_p_boot = _block_bootstrap_p(valid["sent_mean"], valid["next_return"])
 
     signed = valid[valid["sent_mean"].abs() >= 0.05]
     hit_rate = float((np.sign(signed["sent_mean"]) ==
@@ -96,8 +132,13 @@ def sentiment_validation(save: bool = True) -> dict:
     result = {
         "period": [str(valid["date"].min().date()), str(valid["date"].max().date())],
         "n_sessions": int(len(valid)),
-        "corr_same_day": {"r": float(same_r), "p_value": float(same_p)},
-        "corr_next_day": {"r": float(next_r), "p_value": float(next_p)},
+        # "p_value" keeps its original meaning (the i.i.d. Pearson p) so older
+        # report files and their readers stay valid; the dependence-aware p is
+        # added beside it and is the one to quote.
+        "corr_same_day": {"r": float(same_r), "p_value": float(same_p),
+                          "p_value_block_bootstrap": float(same_p_boot)},
+        "corr_next_day": {"r": float(next_r), "p_value": float(next_p),
+                          "p_value_block_bootstrap": float(next_p_boot)},
         "next_day_hit_rate": hit_rate,
         "n_signed_sessions": int(len(signed)),
         "tail_spread": {
@@ -109,8 +150,9 @@ def sentiment_validation(save: bool = True) -> dict:
         "label_distribution": pd.read_parquet(config.HEADLINES_SCORED)["label"]
             .value_counts(normalize=True).round(4).to_dict(),
     }
-    log.info("sentiment: same-day r=%.3f (p=%.3g), next-day r=%.3f (p=%.3g), hit=%.3f",
-             same_r, same_p, next_r, next_p, hit_rate)
+    log.info("sentiment: same-day r=%.3f (iid p=%.3g, block p=%.3g), "
+             "next-day r=%.3f (iid p=%.3g, block p=%.3g), hit=%.3f",
+             same_r, same_p, same_p_boot, next_r, next_p, next_p_boot, hit_rate)
     if save:
         SENTIMENT_EVAL_PATH.write_text(json.dumps(result, indent=2))
     return result
@@ -187,7 +229,9 @@ def committee_backtest(step: int = 3, save: bool = True) -> pd.DataFrame:
 
     rows = []
     for i, row in enumerate(decision_rows.itertuples()):
-        state = run_committee(df, row.date)
+        # Findings only: the prose would be discarded and, with an API key
+        # set, would cost one model call per agent per decision.
+        state = run_committee(df, row.date, narrative=False)
         risk, quant, sent = state["risk"], state["quant"], state["sentiment"]
         rows.append({
             "date": row.date,

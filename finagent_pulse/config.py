@@ -124,7 +124,22 @@ def anthropic_key() -> str | None:
 # trading at all. Instead both gates are set at the 80th percentile of the
 # validation distribution, so the committee acts only on its most confident
 # quintile of days and abstains on the rest.
-SIGNAL_TO_NOISE_MIN = 0.175        # validation p80 of |forecast| / horizon vol
+def _calibrated(key: str, default: float) -> float:
+    """Read a calibrated constant from the report that produced it.
+
+    ``evaluation.calibrate_decision_thresholds()`` writes decision_thresholds.json.
+    Reading it back here keeps the constant and its derivation from drifting apart;
+    the literal is the fallback for a fresh checkout that has not run the pipeline.
+    """
+    try:
+        import json
+        return float(json.loads(
+            (REPORTS / "decision_thresholds.json").read_text())[key])
+    except Exception:
+        return default
+
+
+SIGNAL_TO_NOISE_MIN = _calibrated("signal_to_noise_min", 0.175)
 # A floor for numerical triviality only -- NOT a second conviction gate.
 # Gating on absolute return as well as on signal-to-noise would test the same
 # quantity twice and, at any meaningful level, suppress every trade.

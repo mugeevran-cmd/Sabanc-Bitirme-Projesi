@@ -35,10 +35,25 @@ def _merge(a: dict | None, b: dict | None) -> dict:
 class CommitteeState(TypedDict, total=False):
     as_of: str
     features: Any                 # the feature table (passed by reference)
+    narrative: bool               # False -> deterministic templates, no model calls
     quant: Annotated[dict, _merge]
     sentiment: Annotated[dict, _merge]
     risk: Annotated[dict, _merge]
     reports: Annotated[dict, _merge]
+
+
+def _narrate(state: CommitteeState, system: str, prompt: str, fallback: str) -> str:
+    """Write agent prose, unless the caller asked for findings only.
+
+    The backtest runs the committee once per decision and throws every word of
+    prose away. With an API key configured that was 3 model calls x 75 decisions
+    = 225 requests for output nobody reads, and it made the backtest depend on a
+    network round-trip. Callers that only want the findings pass
+    ``narrative=False`` and get the deterministic template instead.
+    """
+    if not state.get("narrative", True):
+        return fallback
+    return get_writer().write(system, prompt, fallback)
 
 
 # --------------------------------------------------------------------------
@@ -106,7 +121,8 @@ def data_analyst_node(state: CommitteeState) -> dict:
     }
 
     fallback = _render_quant_report(findings)
-    prose = get_writer().write(
+    prose = _narrate(
+        state,
         DATA_ANALYST_SYSTEM,
         "Explain these quantitative findings for the investment committee. "
         "Be explicit about whether the forecast is large enough to trade "
@@ -229,7 +245,8 @@ def sentiment_critic_node(state: CommitteeState) -> dict:
     evidence_block = "\n".join(
         f"- [{d.date}] ({d.label}, {d.sentiment:+.2f}) {d.headline}" for d in docs)
     fallback = _render_sentiment_report(findings, docs)
-    prose = get_writer().write(
+    prose = _narrate(
+        state,
         SENTIMENT_CRITIC_SYSTEM,
         "Assess the news environment for the committee. Identify the core "
         "drivers and say whether this looks like genuine information or crowd "
@@ -292,14 +309,23 @@ def risk_manager_node(state: CommitteeState) -> dict:
     sent = state["sentiment"]
 
     exp_return = quant["forecast_7d_pct"] / 100.0
-    quant_dir = 1 if exp_return > 0 else -1
+    # 0 is its own case: a flat forecast has no direction, and folding it into
+    # the short side would report a SELL-shaped disagreement for a non-signal.
+    quant_dir = 1 if exp_return > 0 else -1 if exp_return < 0 else 0
     sent_score = sent["sentiment_now"]
     sent_dir = (1 if sent_score >= config.SENTIMENT_STRONG
                 else -1 if sent_score <= -config.SENTIMENT_STRONG else 0)
 
-    agreement = "aligned" if sent_dir != 0 and sent_dir == quant_dir else \
-                "conflicting" if sent_dir != 0 and sent_dir != quant_dir else \
-                "sentiment_neutral"
+    if quant_dir == 0:
+        # No directional forecast to agree or disagree with. The materiality
+        # gate below turns this into a HOLD regardless.
+        agreement = "no_signal"
+    elif sent_dir == 0:
+        agreement = "sentiment_neutral"
+    elif sent_dir == quant_dir:
+        agreement = "aligned"
+    else:
+        agreement = "conflicting"
 
     # ---- deterministic directive ----------------------------------------
     # Rule 1 (signal confirmation): two independent streams must agree.
@@ -403,7 +429,8 @@ def risk_manager_node(state: CommitteeState) -> dict:
     principle_block = "\n".join(
         f"- **{p['principle']}** ({p['source']}): {p['text'][:260]}" for p in principles)
     fallback = _render_risk_report(findings, quant, sent)
-    prose = get_writer().write(
+    prose = _narrate(
+        state,
         RISK_MANAGER_SYSTEM,
         f"The committee's computed directive is {directive} at "
         f"{position_pct}% of standard position size. Justify it.\n\n"
@@ -473,26 +500,34 @@ def build_graph():
 _GRAPH = None
 
 
-def run_committee(features: pd.DataFrame, as_of: str | pd.Timestamp) -> dict:
-    """Run the full committee for one decision date and return its state."""
+def run_committee(features: pd.DataFrame, as_of: str | pd.Timestamp,
+                  narrative: bool = True) -> dict:
+    """Run the full committee for one decision date and return its state.
+
+    ``narrative=False`` skips the language model entirely and renders the
+    deterministic templates instead -- what the backtest wants, since it reads
+    only the findings. Directives are identical either way; the model never
+    touches them.
+    """
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
     as_of = pd.Timestamp(as_of)
-    return _GRAPH.invoke({"as_of": str(as_of.date()), "features": features})
+    return _GRAPH.invoke({"as_of": str(as_of.date()), "features": features,
+                          "narrative": narrative})
 
 
 def executive_report(state: dict) -> str:
     """Assemble the committee's markdown executive investment report."""
     risk, quant, sent = state["risk"], state["quant"], state["sentiment"]
     header = [
-        f"# FinAgent-Pulse — Executive Investment Report",
+        "# FinAgent-Pulse — Executive Investment Report",
         f"**Asset:** {config.TICKER_LABEL} ({config.TICKER})  ·  "
         f"**Decision date:** {risk['as_of']}  ·  "
         f"**Horizon:** {config.LSTM.horizon} trading sessions",
         "",
-        f"| Directive | Position | Conviction | 7-day forecast | Sentiment | Regime |",
-        f"|---|---|---|---|---|---|",
+        "| Directive | Position | Conviction | 7-day forecast | Sentiment | Regime |",
+        "|---|---|---|---|---|---|",
         f"| **{risk['directive']}** | {risk['position_pct']:.1f}% | "
         f"{risk['conviction']:.0%} | {quant['forecast_7d_pct']:+.2f}% | "
         f"{sent['sentiment_now']:+.3f} ({sent['stance']}) | "
