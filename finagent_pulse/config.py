@@ -152,16 +152,27 @@ HIGH_VOL_PERCENTILE = 0.80
 # used to report the ablation results (seed 42).
 # The dense arm is fixed at 1.0 and the others are expressed relative to it.
 #
-# The 35-point dev grid spans nDCG@10 0.1389-0.1756, and the two axes behave
+# Re-run after the BM25 tokeniser fix (rag/index.py::tokenize). The previous
+# grid was searched against an index that kept punctuation glued to its terms,
+# which understated the sparse arm and pulled its optimal weight down to 0.30.
+#
+# The 35-point dev grid spans nDCG@10 0.1503-0.2078, and the two axes behave
 # very differently:
-#   The BM25 weight matters. At w=0 the grid mean is 0.1472, against 0.1727
-#   across 0.45-0.80, so the sparse arm carries real signal and this weight is
-#   worth calibrating.
-#   The KG weight barely does. The best configuration with the expanded arms
-#   switched off entirely scores 0.1736 against 0.1756 with them on (+1.1%), and
-#   the grid mean falls monotonically above 0.25 (0.1698 -> 0.1667 -> 0.1643 ->
-#   0.1619). 0.25 is the argmax of a genuinely shallow optimum; the arm is kept
-#   for what it does on keyword queries, not because the calibration demands it.
-#   See reports/TECHNICAL_REPORT.md section 5.4.
+#   The BM25 weight matters, and matters more than it used to. The grid mean
+#   climbs monotonically with it -- 0.1624, 0.1739, 0.1830, 0.1865, 0.1948,
+#   0.1999, 0.2001 across 0.00 -> 1.00 -- so removing the sparse arm costs
+#   0.038 nDCG and this weight is worth calibrating.
+#   The KG weight does not. The grid mean falls monotonically as it rises
+#   (0.1962 -> 0.1902 -> 0.1851 -> 0.1810 -> 0.1766) and half of the top six
+#   settings have the expanded arms switched off entirely.
+#
+# The grid argmax is bm25 = 1.00, kg = 0.00 (0.2078). The configuration below,
+# 0.80 / 0.25, ranks second at 0.2036, and a paired bootstrap over the per-query
+# dev scores says the gap is not a difference: +0.0042, 95% CI [-0.008, +0.017],
+# p = 0.51. Switching the KG arms off at the shipped sparse weight is likewise a
+# non-difference (-0.0021, p = 0.74). The weights are therefore not determined
+# by this data; 0.80 / 0.25 is kept because the argmax is not measurably better,
+# not because the calibration demands it.
+# See reports/TECHNICAL_REPORT.md section 5.1.
 BM25_WEIGHT = 0.80
 KG_ARM_WEIGHT = 0.25

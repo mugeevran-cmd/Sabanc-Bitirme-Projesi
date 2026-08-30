@@ -16,28 +16,28 @@
       "query_style": "keyword",
       "mode": "bm25",
       "n_queries": 136,
-      "recall@k": 0.21160130718954248,
-      "precision@5": 0.21764705882352942,
-      "mrr": 0.7458099906629317,
-      "ndcg@k": 0.28765084673366254
+      "recall@k": 0.25676937441643327,
+      "precision@5": 0.2529411764705882,
+      "mrr": 0.908158263305322,
+      "ndcg@k": 0.3498596007641299
     },
     {
       "query_style": "keyword",
       "mode": "hybrid",
       "n_queries": 136,
-      "recall@k": 0.24320144724556492,
-      "precision@5": 0.24411764705882355,
-      "mrr": 0.7536968954248365,
-      "ndcg@k": 0.308065903375473
+      "recall@k": 0.24818218954248367,
+      "precision@5": 0.25441176470588234,
+      "mrr": 0.7741100606909431,
+      "ndcg@k": 0.32554525522971567
     },
     {
       "query_style": "keyword",
       "mode": "hybrid_kg",
       "n_queries": 136,
-      "recall@k": 0.2592232726423903,
-      "precision@5": 0.24852941176470586,
-      "mrr": 0.7667250233426703,
-      "ndcg@k": 0.31923301332241716
+      "recall@k": 0.26193685807656397,
+      "precision@5": 0.25441176470588234,
+      "mrr": 0.8077497665732959,
+      "ndcg@k": 0.3386992028801248
     },
     {
       "query_style": "semantic",
@@ -52,55 +52,55 @@
       "query_style": "semantic",
       "mode": "bm25",
       "n_queries": 136,
-      "recall@k": 0.008700980392156863,
-      "precision@5": 0.0058823529411764705,
-      "mrr": 0.016217320261437906,
-      "ndcg@k": 0.00790221843875705
+      "recall@k": 0.04129901960784314,
+      "precision@5": 0.026470588235294117,
+      "mrr": 0.06079306722689076,
+      "ndcg@k": 0.03452807954247669
     },
     {
       "query_style": "semantic",
       "mode": "hybrid",
       "n_queries": 136,
-      "recall@k": 0.07789740896358543,
-      "precision@5": 0.04264705882352942,
-      "mrr": 0.10954423436041083,
-      "ndcg@k": 0.06142826238190504
+      "recall@k": 0.087765522875817,
+      "precision@5": 0.06029411764705883,
+      "mrr": 0.13269724556489262,
+      "ndcg@k": 0.07122415619462387
     },
     {
       "query_style": "semantic",
       "mode": "hybrid_kg",
       "n_queries": 136,
-      "recall@k": 0.06806430905695611,
-      "precision@5": 0.03970588235294118,
-      "mrr": 0.10266981792717088,
-      "ndcg@k": 0.058091652890477824
+      "recall@k": 0.0823733660130719,
+      "precision@5": 0.06323529411764707,
+      "mrr": 0.13835784313725494,
+      "ndcg@k": 0.07380728758841307
     },
     {
       "query_style": "macro_average",
       "mode": "bm25",
       "n_queries": 272,
-      "recall@k": 0.11015114379084967,
-      "precision@5": 0.11176470588235295,
-      "mrr": 0.3810136554621848,
-      "ndcg@k": 0.1477765325862098
+      "recall@k": 0.14903419701213821,
+      "precision@5": 0.13970588235294118,
+      "mrr": 0.4844756652661064,
+      "ndcg@k": 0.19219384015330332
     },
     {
       "query_style": "macro_average",
       "mode": "hybrid",
       "n_queries": 272,
-      "recall@k": 0.16054942810457518,
-      "precision@5": 0.1433823529411765,
-      "mrr": 0.4316205648926237,
-      "ndcg@k": 0.18474708287868902
+      "recall@k": 0.16797385620915034,
+      "precision@5": 0.15735294117647058,
+      "mrr": 0.45340365312791786,
+      "ndcg@k": 0.19838470571216976
     },
     {
       "query_style": "macro_average",
       "mode": "hybrid_kg",
       "n_queries": 272,
-      "recall@k": 0.1636437908496732,
-      "precision@5": 0.14411764705882352,
-      "mrr": 0.4346974206349206,
-      "ndcg@k": 0.18866233310644748
+      "recall@k": 0.17215511204481793,
+      "precision@5": 0.1588235294117647,
+      "mrr": 0.47305380485527543,
+      "ndcg@k": 0.2062532452342689
     },
     {
       "query_style": "macro_average",
@@ -117,10 +117,10 @@
       "comparison": "hybrid - vector",
       "query_style": "keyword",
       "question": "does fusing BM25 in beat dense-only?",
-      "mean_difference": 0.025627484230997973,
-      "ci_low": 0.006236324801733999,
-      "ci_high": 0.04414037391507818,
-      "p_value": 0.0094,
+      "mean_difference": 0.043106836085240643,
+      "ci_low": 0.02563999916512721,
+      "ci_high": 0.06107591250369296,
+      "p_value": 0.0,
       "n_queries": 136,
       "significant": true
     },
@@ -128,10 +128,10 @@
       "comparison": "hybrid - vector",
       "query_style": "semantic",
       "question": "does fusing BM25 in beat dense-only?",
-      "mean_difference": -0.0037583760276946486,
-      "ci_low": -0.017357935130703054,
-      "ci_high": 0.01044994362047718,
-      "p_value": 0.5932,
+      "mean_difference": 0.0060375177850241785,
+      "ci_low": -0.00900470189887102,
+      "ci_high": 0.020872044343400904,
+      "p_value": 0.426,
       "n_queries": 136,
       "significant": false
     },
@@ -139,111 +139,111 @@
       "comparison": "hybrid - vector",
       "query_style": "pooled",
       "question": "does fusing BM25 in beat dense-only?",
-      "mean_difference": 0.010934554101651662,
-      "ci_low": -0.0009415833131168291,
-      "ci_high": 0.02267242388439306,
-      "p_value": 0.0678,
+      "mean_difference": 0.024572176935132414,
+      "ci_low": 0.012845111435241155,
+      "ci_high": 0.036468092339857906,
+      "p_value": 0.0,
       "n_queries": 272,
-      "significant": false
+      "significant": true
     },
     {
       "comparison": "hybrid_kg - vector",
       "query_style": "keyword",
       "question": "does the full stack beat dense-only?",
-      "mean_difference": 0.03679459417794212,
-      "ci_low": 0.015910913080375413,
-      "ci_high": 0.05674504139875576,
-      "p_value": 0.0004,
-      "n_queries": 136,
-      "significant": true
-    },
-    {
-      "comparison": "hybrid_kg - vector",
-      "query_style": "semantic",
-      "question": "does the full stack beat dense-only?",
-      "mean_difference": -0.007094985519121864,
-      "ci_low": -0.023213008937950953,
-      "ci_high": 0.009752478406345662,
-      "p_value": 0.3918,
-      "n_queries": 136,
-      "significant": false
-    },
-    {
-      "comparison": "hybrid_kg - vector",
-      "query_style": "pooled",
-      "question": "does the full stack beat dense-only?",
-      "mean_difference": 0.014849804329410125,
-      "ci_low": 0.0012959114155227719,
-      "ci_high": 0.028048287800218376,
-      "p_value": 0.0288,
-      "n_queries": 272,
-      "significant": true
-    },
-    {
-      "comparison": "hybrid_kg - hybrid",
-      "query_style": "keyword",
-      "question": "does the knowledge-graph arm add anything?",
-      "mean_difference": 0.011167109946944141,
-      "ci_low": 0.003470891866927564,
-      "ci_high": 0.020236645394391278,
-      "p_value": 0.003,
-      "n_queries": 136,
-      "significant": true
-    },
-    {
-      "comparison": "hybrid_kg - hybrid",
-      "query_style": "semantic",
-      "question": "does the knowledge-graph arm add anything?",
-      "mean_difference": -0.003336609491427216,
-      "ci_low": -0.012695381682617454,
-      "ci_high": 0.00557081343534448,
-      "p_value": 0.4672,
-      "n_queries": 136,
-      "significant": false
-    },
-    {
-      "comparison": "hybrid_kg - hybrid",
-      "query_style": "pooled",
-      "question": "does the knowledge-graph arm add anything?",
-      "mean_difference": 0.003915250227758463,
-      "ci_low": -0.0023387625772505155,
-      "ci_high": 0.010186963018253375,
-      "p_value": 0.2148,
-      "n_queries": 272,
-      "significant": false
-    },
-    {
-      "comparison": "hybrid - bm25",
-      "query_style": "keyword",
-      "question": "does fusing dense in beat sparse-only?",
-      "mean_difference": 0.020415056641810397,
-      "ci_low": -0.005832452947841512,
-      "ci_high": 0.046018663478478945,
-      "p_value": 0.121,
-      "n_queries": 136,
-      "significant": false
-    },
-    {
-      "comparison": "hybrid - bm25",
-      "query_style": "semantic",
-      "question": "does fusing dense in beat sparse-only?",
-      "mean_difference": 0.053526043943147986,
-      "ci_low": 0.03520769379738698,
-      "ci_high": 0.0736389754948883,
+      "mean_difference": 0.056260783735649744,
+      "ci_low": 0.03684529354570824,
+      "ci_high": 0.07606904091633208,
       "p_value": 0.0,
       "n_queries": 136,
       "significant": true
     },
     {
-      "comparison": "hybrid - bm25",
+      "comparison": "hybrid_kg - vector",
+      "query_style": "semantic",
+      "question": "does the full stack beat dense-only?",
+      "mean_difference": 0.008620649178813375,
+      "ci_low": -0.010730474496233542,
+      "ci_high": 0.028779289903472675,
+      "p_value": 0.3884,
+      "n_queries": 136,
+      "significant": false
+    },
+    {
+      "comparison": "hybrid_kg - vector",
       "query_style": "pooled",
-      "question": "does fusing dense in beat sparse-only?",
-      "mean_difference": 0.03697055029247919,
-      "ci_low": 0.020922691759581828,
-      "ci_high": 0.053168413837083955,
+      "question": "does the full stack beat dense-only?",
+      "mean_difference": 0.03244071645723156,
+      "ci_low": 0.018671705386320982,
+      "ci_high": 0.04692345680944914,
       "p_value": 0.0,
       "n_queries": 272,
       "significant": true
+    },
+    {
+      "comparison": "hybrid_kg - hybrid",
+      "query_style": "keyword",
+      "question": "does the knowledge-graph arm add anything?",
+      "mean_difference": 0.013153947650409092,
+      "ci_low": 0.004376790123204438,
+      "ci_high": 0.02279096900887499,
+      "p_value": 0.0034,
+      "n_queries": 136,
+      "significant": true
+    },
+    {
+      "comparison": "hybrid_kg - hybrid",
+      "query_style": "semantic",
+      "question": "does the knowledge-graph arm add anything?",
+      "mean_difference": 0.0025831313937892,
+      "ci_low": -0.009848272141791964,
+      "ci_high": 0.017158434092673494,
+      "p_value": 0.7362,
+      "n_queries": 136,
+      "significant": false
+    },
+    {
+      "comparison": "hybrid_kg - hybrid",
+      "query_style": "pooled",
+      "question": "does the knowledge-graph arm add anything?",
+      "mean_difference": 0.007868539522099146,
+      "ci_low": 0.0002597430947310142,
+      "ci_high": 0.016488891607705405,
+      "p_value": 0.0428,
+      "n_queries": 272,
+      "significant": true
+    },
+    {
+      "comparison": "hybrid - bm25",
+      "query_style": "keyword",
+      "question": "does fusing dense in beat sparse-only?",
+      "mean_difference": -0.02431434553441422,
+      "ci_low": -0.04573939894992366,
+      "ci_high": -0.003763082860626923,
+      "p_value": 0.019,
+      "n_queries": 136,
+      "significant": true
+    },
+    {
+      "comparison": "hybrid - bm25",
+      "query_style": "semantic",
+      "question": "does fusing dense in beat sparse-only?",
+      "mean_difference": 0.03669607665214718,
+      "ci_low": 0.013344916212364104,
+      "ci_high": 0.05848419086444814,
+      "p_value": 0.002,
+      "n_queries": 136,
+      "significant": true
+    },
+    {
+      "comparison": "hybrid - bm25",
+      "query_style": "pooled",
+      "question": "does fusing dense in beat sparse-only?",
+      "mean_difference": 0.0061908655588664785,
+      "ci_low": -0.010221879958125643,
+      "ci_high": 0.02156800396024476,
+      "p_value": 0.4294,
+      "n_queries": 272,
+      "significant": false
     }
   ]
 }

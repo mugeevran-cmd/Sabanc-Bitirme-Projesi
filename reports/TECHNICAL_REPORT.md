@@ -82,7 +82,9 @@ coverage count, plus 5-day smoothing and a momentum term.
 
 There are no human sentiment labels for this corpus, so the engine is validated
 the way it is actually used: **against the market**, on the held-out test period
-only (223 sessions, 2023-04 → 2024-02).
+only (230 sessions, 2023-04-03 → 2024-03-01). That is seven sessions more than
+the forecaster's 223 test windows below: the forecaster drops the tail that has
+no 7-day target, whereas this check only needs the next session.
 
 | Check | Result | Interpretation |
 |---|---|---|
@@ -233,29 +235,63 @@ scales. Arm weights are grid-searched on a **development partition that shares
 no document with the evaluation partition** (see §5.2): dense 1.0, sparse 0.80,
 expanded arms 0.25.
 
-The 35-point grid spans nDCG@10 **0.1503–0.1960**, and the two axes are not
+The 35-point grid spans nDCG@10 **0.1503–0.2078**, and the two axes are not
 alike:
 
 | Axis | Grid mean by value |
 |---|---|
-| `bm25_weight` | 0.00 → **0.1624**, 0.30 → 0.1777, 0.60 → 0.1830, 0.80 → **0.1852**, 1.00 → 0.1749 |
-| `kg_weight` | 0.00 → **0.1913**, 0.25 → 0.1818, 0.50 → 0.1759, 0.75 → 0.1695, 1.00 → 0.1638 |
+| `bm25_weight` | 0.00 → **0.1624**, 0.15 → 0.1739, 0.30 → 0.1830, 0.45 → 0.1865, 0.60 → 0.1948, 0.80 → 0.1999, 1.00 → **0.2001** |
+| `kg_weight` | 0.00 → **0.1962**, 0.25 → 0.1902, 0.50 → 0.1851, 0.75 → 0.1810, 1.00 → 0.1766 |
 
-The sparse weight matters: removing BM25 entirely costs 0.023 nDCG. The
-expansion weight does not, and in fact the grid mean is **highest with the KG
-arms switched off**, falling monotonically as the weight rises.
+The sparse weight matters: removing BM25 entirely costs 0.038 nDCG, and the grid
+mean rises monotonically with it. The expansion weight does not, and in fact the
+grid mean is **highest with the KG arms switched off**, falling monotonically as
+the weight rises.
 
-The grid argmax is `bm25 = 0.30, kg = 0.00` (0.1960); five of the top six
-settings have `kg = 0.00`. **The configuration we ship, 0.80 / 0.25, ranks third
-at 0.1938** — and a paired bootstrap over the per-query scores says the
-difference is nothing: **+0.0022, p = 0.84**. Switching the KG arms off at the
-shipped sparse weight is likewise a non-difference (−0.0009, p = 0.84).
+> This grid was re-searched after the BM25 tokeniser fix (§5.1.1). The previous
+> search ran against an index that kept punctuation attached to its terms, and
+> it put the sparse optimum at `bm25 = 0.30` with a grid mean that *fell* above
+> 0.80. That shape was an artefact of the defect: with the sparse arm working,
+> the grid wants more of it, not less.
+
+The grid argmax is `bm25 = 1.00, kg = 0.00` (0.2078); three of the top six
+settings have `kg = 0.00`. **The configuration we ship, 0.80 / 0.25, ranks second
+at 0.2036** — and a paired bootstrap over the per-query scores says the
+difference is nothing: **+0.0042, 95% CI [−0.008, +0.017], p = 0.51**. Switching
+the KG arms off at the shipped sparse weight is likewise a non-difference
+(−0.0021, p = 0.74).
 
 So the weights are not determined by this data. We keep 0.80 / 0.25 because the
 argmax is not measurably better and changing a headline component on a
 non-difference would be worse than leaving it — but the honest statement is that
 the calibration does not require the knowledge-graph arm, and says so a little
 more loudly than in §5.4.1.
+
+### 5.1.1 A tokenisation defect that distorted every BM25 number
+
+The index was built with `headline.lower().split()` and queries were split the
+same way, so punctuation stayed glued to the token: an indexed `"cools,"` could
+never match a queried `"cools"`. **11.5% of corpus tokens carried punctuation,
+72.8% of headlines contained at least one, and the vocabulary was 30.7% larger
+than the corpus really warrants** (13,169 distinct terms against 9,132), which
+distorts IDF on top of the missed matches.
+
+The damage was not symmetric across the two query styles, and the asymmetry ran
+in exactly the direction of the result the study was reporting. Keyword queries
+are built by `_content_words`, which already strips punctuation with a regex, so
+**0 of their 678 terms were affected**. Semantic queries are natural-language
+questions ending in a question mark, so **136 of 1,293 terms were unmatchable —
+exactly one per query, and always one of the two entity names the question is
+built from.** Every semantic query went into BM25 with half its content signal
+removed.
+
+Both sides now go through `rag/index.py::tokenize`. The pickled index carries a
+`tokenizer` stamp and `load_bm25` refuses one built by a different tokeniser,
+because the failure mode is silent: mismatched tokenisation scores every
+document 0, which reads as "BM25 found nothing" rather than as a broken index.
+
+§5.3 and §5.4 report the re-measured numbers. The dense-only column is unchanged
+to four decimal places, which is the check that only BM25-dependent paths moved.
 
 ### 5.2 Ablation protocol
 
@@ -269,7 +305,7 @@ With no editorial relevance judgements available, the benchmark uses a
   with different random seeds, and disjointness was asserted rather than
   enforced.
 - A document is **relevant** if it shares ≥ 2 entities with the seed and falls
-  within ±15 days — the same market event cluster. Median cluster size: 14.
+  within ±15 days — the same market event cluster. Median cluster size: 11.
 - Two deliberately lossy query styles, so exact string matching is impossible:
   - **keyword** — a shuffled 50% subset of the seed's content words.
   - **semantic** — a natural-language question built from the seed's entities
@@ -282,17 +318,17 @@ Reporting both styles is the point of the study.
 | Query style | Mode | Recall@10 | Precision@5 | MRR | nDCG@10 |
 |---|---|---|---|---|---|
 | keyword | vector | 0.2289 | 0.2147 | 0.6711 | 0.2824 |
-| keyword | bm25 | 0.2116 | 0.2176 | 0.7458 | 0.2877 |
-| keyword | hybrid | 0.2432 | 0.2441 | 0.7537 | 0.3081 |
-| keyword | **hybrid_kg** | **0.2592** | **0.2485** | **0.7667** | **0.3192** |
-| semantic | **vector** | **0.0781** | **0.0441** | **0.1114** | **0.0652** |
-| semantic | bm25 | 0.0087 | 0.0059 | 0.0162 | 0.0079 |
-| semantic | hybrid | 0.0779 | 0.0426 | 0.1095 | 0.0614 |
-| semantic | hybrid_kg | 0.0681 | 0.0397 | 0.1027 | 0.0581 |
-| **macro avg** | bm25 | 0.1102 | 0.1118 | 0.3810 | 0.1478 |
+| keyword | **bm25** | 0.2568 | 0.2529 | **0.9082** | **0.3499** |
+| keyword | hybrid | 0.2482 | 0.2544 | 0.7741 | 0.3255 |
+| keyword | hybrid_kg | **0.2619** | **0.2544** | 0.8077 | 0.3387 |
+| semantic | vector | 0.0781 | 0.0441 | 0.1114 | 0.0652 |
+| semantic | bm25 | 0.0413 | 0.0265 | 0.0608 | 0.0345 |
+| semantic | hybrid | **0.0878** | 0.0603 | 0.1327 | 0.0712 |
+| semantic | **hybrid_kg** | 0.0824 | **0.0632** | **0.1384** | **0.0738** |
+| **macro avg** | bm25 | 0.1490 | 0.1397 | **0.4845** | 0.1922 |
 | **macro avg** | vector | 0.1535 | 0.1294 | 0.3913 | 0.1738 |
-| **macro avg** | hybrid | 0.1605 | 0.1434 | 0.4316 | 0.1847 |
-| **macro avg** | **hybrid_kg** | **0.1636** | **0.1441** | **0.4347** | **0.1887** |
+| **macro avg** | hybrid | 0.1680 | 0.1574 | 0.4534 | 0.1984 |
+| **macro avg** | **hybrid_kg** | **0.1722** | **0.1588** | 0.4731 | **0.2063** |
 
 ![RAG ablation](figures/03_rag_ablation.png)
 
@@ -300,15 +336,26 @@ Reporting both styles is the point of the study.
 
 **Hybrid retrieval buys robustness, not a higher peak.**
 
-Each single retriever wins on the query style that suits it and collapses on
-the other. BM25 is competitive on keyword queries (0.288 nDCG) and then falls to
-**0.0079 nDCG on semantic queries — an 8× collapse against the dense index**,
-because a natural-language question shares no rare terms with any headline. The
+Each single retriever wins on the query style that suits it and falls away on
+the other. BM25 is the **strongest** single retriever on keyword queries (0.350
+nDCG, 0.908 MRR — it puts a relevant document first on nine queries in ten) and
+then drops to **0.0345 nDCG on semantic queries, 1.9× below the dense index**,
+because a natural-language question shares few rare terms with any headline. The
 dense index is the mirror image: it holds up on semantic queries and is the
-weakest fused-comparable option on keyword ones.
+weakest option on keyword ones.
 
-The fused modes never collapse. On macro average `hybrid_kg` posts the top nDCG
-(0.1887), MRR (0.4347) and recall (0.1636), ahead of either component alone.
+> An earlier version of this section reported that semantic collapse as
+> **0.0079 nDCG, an 8× gap**. That figure was produced by the tokenisation
+> defect in §5.1.1, which removed one of the two entity terms from every
+> semantic query before it reached BM25. The effect is real but roughly a
+> quarter of the size once measured correctly, and it was the single most
+> load-bearing number in this chapter. It should not have survived to a first
+> write-up without a check that BM25 was being asked the question we thought.
+
+The fused modes never fall away on either style. On macro average `hybrid_kg`
+posts the top nDCG (0.2063), precision@5 (0.1588) and recall (0.1722) — but note
+that BM25 now takes the macro MRR (0.4845), on the strength of its keyword
+performance alone.
 
 ### 5.4.1 Which of these differences are real
 
@@ -319,58 +366,63 @@ runs a 10 000-draw paired bootstrap over them; the output is
 
 | Comparison | Query style | Δ nDCG@10 | 95% CI | p |
 |---|---|---|---|---|
-| hybrid − vector | keyword | **+0.0256** | [+0.006, +0.044] | **0.009** |
-| hybrid − vector | semantic | −0.0038 | [−0.017, +0.010] | 0.593 |
-| hybrid − vector | pooled | +0.0109 | [−0.001, +0.023] | 0.068 |
-| hybrid_kg − vector | pooled | +0.0148 | [+0.001, +0.028] | **0.029** |
-| hybrid_kg − hybrid | keyword | **+0.0112** | [+0.004, +0.020] | **0.003** |
-| hybrid_kg − hybrid | pooled | +0.0039 | [−0.002, +0.010] | 0.215 |
-| hybrid − bm25 | pooled | **+0.0370** | [+0.021, +0.053] | **<0.001** |
+| hybrid − vector | keyword | **+0.0431** | [+0.026, +0.061] | **<0.001** |
+| hybrid − vector | semantic | +0.0060 | [−0.009, +0.021] | 0.426 |
+| hybrid − vector | pooled | **+0.0246** | [+0.013, +0.037] | **<0.001** |
+| hybrid_kg − vector | keyword | **+0.0563** | [+0.037, +0.076] | **<0.001** |
+| hybrid_kg − vector | pooled | **+0.0324** | [+0.019, +0.047] | **<0.001** |
+| hybrid_kg − hybrid | keyword | **+0.0132** | [+0.004, +0.023] | **0.003** |
+| hybrid_kg − hybrid | pooled | +0.0079 | [+0.000, +0.017] | 0.043 |
+| hybrid − bm25 | keyword | **−0.0243** | [−0.046, −0.004] | **0.019** |
+| hybrid − bm25 | semantic | **+0.0367** | [+0.013, +0.059] | **0.002** |
+| hybrid − bm25 | pooled | +0.0062 | [−0.010, +0.022] | 0.429 |
 
-**The one comparison that is robust** is fusion against sparse-only: `hybrid`
-beats `bm25` by +0.037 pooled (p < 0.001), because it never enters BM25's
-semantic-query collapse. That is the fused system's demonstrated property, and
-it is a different sentence from "hybrid RAG beats standard RAG".
+**This table reverses the previous version of this section**, and the reversal is
+the tokeniser fix in §5.1.1. It is worth stating plainly what changed rather than
+quietly restating the conclusion:
 
-**The comparison against dense-only is not settled by this benchmark, and we
-have direct evidence of that.** These numbers come from the evaluation
-partition introduced in §5.2. An earlier run of the same protocol on a different
-136-query draw from the same corpus put `hybrid_kg − vector` at **p = 0.204**;
-this draw puts it at **p = 0.029**. The verdict crossed the 0.05 line between
-two samples of the same population. Neither figure should be reported as
-settled: 136 queries is not enough to resolve a difference of this size, and we
-say so rather than quoting whichever draw is more flattering.
+**The robust comparison is now fusion against dense-only.** `hybrid_kg` beats
+`vector` by +0.032 pooled (p < 0.001) and `hybrid` beats it by +0.025 pooled
+(p < 0.001). Previously both were reported as unsettled (p = 0.029 and p = 0.068)
+and the write-up declined to claim them. With a working sparse arm the fused
+modes gain enough on keyword queries to settle it.
 
-For contrast, the two comparisons that *are* stable across both draws are
-`hybrid − bm25` (p = 0.002 and p < 0.001, significant both times) and
-`hybrid_kg − hybrid` pooled (p = 0.825 and p = 0.215, non-significant both
-times). Stability across resampling, not the p-value from one run, is what
-makes a retrieval claim safe to put in a conclusion.
+**Fusion against sparse-only is now the comparison that is *not* settled.**
+Pooled, `hybrid − bm25` is +0.006 with p = 0.43 and a CI straddling zero. That
+single number hides a real trade that the pooled average cancels out: fusion
+**loses** to BM25 on keyword queries (−0.024, p = 0.019) and **beats** it on
+semantic ones (+0.037, p = 0.002). Both halves are significant and they point in
+opposite directions. The previous write-up called `hybrid − bm25` "the one
+comparison that is robust" at +0.037 pooled, p < 0.001 — that finding does not
+survive the fix, because most of it was BM25 being handicapped on the semantic
+side.
 
-The honest reading is that the fused system's value is *variance reduction*: it
-guarantees never landing in BM25's semantic-query failure mode, at the cost of
-giving up BM25's keyword-query peak. For a system whose queries are written by
-an agent in unpredictable phrasing, that trade is worth making.
+**The two-draws argument in the previous version is withdrawn.** It contrasted
+`hybrid_kg − vector` at p = 0.204 on an earlier 136-query draw against p = 0.029
+on this one, and used the disagreement to argue the comparison was unresolvable
+at this sample size. The earlier draw was measured against the defective index,
+so the two runs were not two samples of one protocol — they were two different
+retrieval systems, and the comparison had no evidential force. The sample-size
+caution in §8 stands on its own; this particular piece of evidence for it does
+not.
 
-**Knowledge-graph expansion is the component this study does not manage to
-justify.** Against `hybrid` it buys **+1.6% nDCG on keyword queries** and costs
-**−5.1% on semantic ones**; the two very nearly cancel, which is exactly why the
-macro average moves by +0.06%. The weight calibration reaches the same conclusion
-independently (§5.1): switching the expanded arms off costs 1.1% on the
-development split, and every weight above 0.25 makes matters worse. The arm is
-retained because keyword-style queries are the ones it helps, but on this
-benchmark its contribution is not distinguishable from noise on the macro
-average and it is not reported as a win. The paired bootstrap puts the pooled
-gap at p = 0.215 here and p = 0.825 on the earlier draw — non-significant both
-times, which is the stable answer.
+The honest reading is still that the fused system's value is *robustness across
+query styles* rather than a higher peak on any one of them — but the failure
+mode it now insures against is the dense index's weakness on keyword queries at
+least as much as BM25's weakness on semantic ones, and on macro average it no
+longer buys anything measurable over BM25 alone.
 
-The keyword side is the one place it may be doing something: **+0.0112 nDCG,
-p = 0.003** on this draw, against p = 0.24 on the previous one. That is
-suggestive rather than established, and it points the same way as the retained
-0.25 weight. Set against it, the weight calibration on the disjoint dev
-partition (§5.1) puts the grid mean *highest* with the KG arms off. Taken
-together: the arm is not costing anything measurable, it may help keyword
-queries, and no measurement in this study establishes that it helps overall.
+**Knowledge-graph expansion remains the component this study does not establish.**
+Against `hybrid` it is +0.0132 on keyword queries (p = 0.003) and +0.0026 on
+semantic ones (p = 0.74), pooling to **+0.0079 at p = 0.043** — nominally
+significant now where it was p = 0.215 before, but on a single draw and barely
+inside the threshold, which is exactly the situation §8 warns against reading
+too much into. Pulling the other way, the weight calibration on the disjoint dev
+partition (§5.1) still puts the grid mean *highest* with the expanded arms
+switched off, and switching them off at the shipped sparse weight is a
+non-difference there (−0.0021, p = 0.74). Two measurements on disjoint data
+disagree about the sign of this arm's value. The arm is retained because it costs
+nothing measurable, and it is not reported as a win.
 
 ---
 
@@ -556,14 +608,19 @@ signal-confirmation rule.
    statistical power at all.
 7. **Headline sentiment is not predictive** (§3.1). This bounds what any
    news-driven component of the system can contribute.
-8. **136 queries is too few to resolve the fused-vs-dense comparison**
-   (§5.4.1). Two draws of the same protocol from the same corpus put
-   `hybrid_kg − vector` at p = 0.204 and p = 0.029 — opposite sides of the
-   conventional threshold. The comparisons that are stable across both draws
-   are fusion beating sparse-only (significant both times) and the
-   knowledge-graph arm's pooled contribution (non-significant both times). Any
-   claim resting on a single draw's p-value near 0.05 should be treated as
-   unresolved.
+8. **Two retrieval claims rest on a single 136-query draw** (§5.4.1). Fusion
+   beating dense-only is comfortable (p < 0.001 pooled) and fusion beating
+   sparse-only is a clear non-result (p = 0.43 pooled), so neither is at risk.
+   The knowledge-graph arm's pooled contribution is the fragile one: p = 0.043
+   on this draw, and the disjoint dev partition points the other way entirely
+   (§5.1). It should be read as unresolved, not as a win.
+
+   Earlier versions of this report used a second, disagreeing draw as evidence
+   that 136 queries cannot settle a comparison. That evidence is withdrawn: the
+   earlier draw predates the tokeniser fix in §5.1.1 and measured a different
+   system. **The general caution stands** — 136 queries is a small benchmark and
+   a p-value near 0.05 on one draw of it is not a finding — but this report no
+   longer has a direct demonstration of it.
 9. **Fused-mode scores reproduce to about ±0.001 nDCG across machines**, while
    single-retriever scores reproduce exactly. Reciprocal rank fusion reads the
    vector index to depth 40 rather than 10, and small floating-point differences

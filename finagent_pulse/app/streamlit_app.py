@@ -193,6 +193,53 @@ def fear_greed_gauge(value: float) -> go.Figure:
     return fig
 
 
+def _split_of(as_of: pd.Timestamp) -> str:
+    """Which split a decision date falls in, using the forecaster's boundaries."""
+    if as_of <= pd.Timestamp(config.LSTM.train_end):
+        return "training"
+    if as_of <= pd.Timestamp(config.LSTM.val_end):
+        return "validation"
+    return "test"
+
+
+def trajectory_table(df: pd.DataFrame, as_of: pd.Timestamp,
+                     forecast: dict) -> pd.DataFrame:
+    """The 7-day projection beside what the market actually did.
+
+    Realised returns use the same definition and the same denominator as the
+    projected ones -- simple return against the origin close -- so the two
+    columns are directly comparable and the error column is meaningful.
+
+    Sessions past the end of the data are left blank rather than dropped: the
+    horizon is always 7 rows, so a partially-realised forecast is visibly
+    partial instead of looking like a shorter forecast.
+    """
+    future = df[df["date"] > as_of].head(config.LSTM.horizon)
+    dates = future["date"].tolist()
+    closes = future["close"].astype(float).tolist()
+    origin_close = forecast["origin_close"]
+
+    rows = []
+    for i in range(config.LSTM.horizon):
+        projected = forecast["path_return_pct"][i]
+        row = {
+            "Session": f"t+{i + 1}",
+            "Date": dates[i].date().isoformat() if i < len(dates) else "—",
+            "Projected level": f"{forecast['prices'][i]:,.2f}",
+            "Realised level": "—",
+            "Projected return": f"{projected:+.2f}%",
+            "Realised return": "—",
+            "Error (pp)": "—",
+        }
+        if i < len(closes):
+            realised = (closes[i] / origin_close - 1) * 100
+            row["Realised level"] = f"{closes[i]:,.2f}"
+            row["Realised return"] = f"{realised:+.2f}%"
+            row["Error (pp)"] = f"{projected - realised:+.2f}"
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 # --------------------------------------------------------------------------
 # Tabs
 # --------------------------------------------------------------------------
@@ -228,12 +275,31 @@ def tab_dashboard(df: pd.DataFrame, as_of: pd.Timestamp) -> None:
 
     if forecast:
         st.subheader("Projected trajectory")
-        traj = pd.DataFrame({
-            "Session": [f"t+{i}" for i in range(1, config.LSTM.horizon + 1)],
-            "Projected level": [f"{p:,.2f}" for p in forecast["prices"]],
-            "Cumulative return": [f"{r:+.2f}%" for r in forecast["path_return_pct"]],
-        })
-        st.dataframe(traj, width="stretch", hide_index=True)
+        st.dataframe(trajectory_table(df, as_of, forecast),
+                     width="stretch", hide_index=True)
+
+        n_realised = int((df["date"] > as_of).sum())
+        if n_realised == 0:
+            st.caption("No sessions follow the selected date in this dataset, so "
+                       "every horizon is still open. Pick an earlier date to see "
+                       "the forecast scored against what actually happened.")
+        else:
+            note = ("Realised columns compare the forecast against the sessions "
+                    "that actually followed. Error is projected minus realised, "
+                    "in percentage points.")
+            if n_realised < config.LSTM.horizon:
+                note += (f" Only {n_realised} of {config.LSTM.horizon} sessions "
+                         "have happened yet; the rest stay blank.")
+            # The forecaster was fitted on train and model-selected on val, so a
+            # date from either is not evidence about forecast quality. Saying so
+            # here matters more than usual: this table is the most tempting place
+            # in the dashboard to read an in-sample fit as a result.
+            split = _split_of(as_of)
+            if split != "test":
+                note += (f" **This date is in the {split} period** — the model saw "
+                         "it during fitting, so treat the agreement below as an "
+                         "in-sample fit, not as forecast accuracy.")
+            st.caption(note)
 
 
 def tab_committee(as_of: pd.Timestamp) -> None:

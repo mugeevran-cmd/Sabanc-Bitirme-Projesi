@@ -119,10 +119,15 @@ def fig_rag_ablation() -> None:
         ax.set_xticklabels(modes, rotation=12)
         ax.set_ylabel(title)
         ax.set_title(f"{title} by retrieval mode")
-    axes[0].legend(fontsize=7.5, loc="upper left")
+    # Figure-level, above the axes: an in-axes legend sat on top of bm25's
+    # keyword bar -- the tallest bar in the left panel and the one the caption
+    # is about -- and hid it completely.
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, fontsize=7.5, ncol=3, frameon=False,
+               loc="upper center", bbox_to_anchor=(0.5, 1.005))
 
     fig.suptitle("Hybrid retrieval buys robustness, not a higher peak",
-                 fontsize=10.5, fontweight="bold", y=1.03)
+                 fontsize=10.5, fontweight="bold", y=1.10)
     fig.savefig(FIG_DIR / "03_rag_ablation.png")
     plt.close(fig)
 

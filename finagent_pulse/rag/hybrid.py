@@ -68,8 +68,9 @@ class HybridRetriever:
         self.principles = client.get_collection(
             config.CHROMA_KB_COLLECTION, embedding_function=ef)
 
-        with open(config.BM25_PATH, "rb") as fh:
-            payload = pickle.load(fh)
+        # Refuses an index built by a different tokeniser rather than scoring
+        # every document 0 -- see rag_index.load_bm25.
+        payload = rag_index.load_bm25()
         self.bm25 = payload["bm25"]
         self.bm25_ids = payload["doc_ids"]
 
@@ -103,7 +104,8 @@ class HybridRetriever:
         The top score measures how much genuine lexical overlap the query has
         with the corpus at all, and is what drives adaptive fusion weighting.
         """
-        scores = self.bm25.get_scores(query.lower().split())
+        # Same tokeniser the index was built with; see rag_index.tokenize.
+        scores = self.bm25.get_scores(rag_index.tokenize(query))
         order = scores.argsort()[::-1]
         out: list[str] = []
         for i in order:

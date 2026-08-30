@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import re
 
 import pandas as pd
 
@@ -23,6 +24,56 @@ from finagent_pulse.rag.entities import build_knowledge_graph, extract_entities
 log = logging.getLogger(__name__)
 
 DOCS_PATH = config.RAG_INDEX / "documents.parquet"
+
+
+# --------------------------------------------------------------------------
+# BM25 tokenisation
+#
+# The index and the query path must tokenise identically, so both go through
+# ``tokenize()`` and neither is allowed to call ``str.split()`` again.
+# --------------------------------------------------------------------------
+_TOKEN = re.compile(r"[a-z0-9&']+")
+
+# Stamped into the pickled payload and checked on load. A BM25 index built by a
+# different tokeniser cannot answer queries tokenised by this one, and the
+# failure mode is silent -- every score comes back 0 and the fused retriever
+# quietly degrades to vector-only.
+TOKENIZER_VERSION = "v2-regex"
+
+
+def tokenize(text: str) -> list[str]:
+    """Split text into BM25 terms, dropping punctuation.
+
+    Both sides used ``text.lower().split()``, which left punctuation attached to
+    the token. An indexed ``"cools,"`` could never match a queried ``"cools"``,
+    and because every natural-language benchmark query ends in a question mark,
+    one of its two entity terms was always a ``"?"``-suffixed token that matched
+    nothing. That inflated the measured collapse of BM25 on semantic queries.
+
+    ``&`` and ``'`` are kept inside tokens so ``s&p`` and ``fed's`` survive as
+    single terms.
+    """
+    return _TOKEN.findall(text.lower())
+
+
+def load_bm25(path=None) -> dict:
+    """Load the pickled BM25 payload, refusing one built by another tokeniser.
+
+    Raises rather than returning a stale index: a mismatch scores every document
+    0, which looks like "BM25 found nothing" instead of like a broken index.
+    """
+    path = config.BM25_PATH if path is None else path
+    with open(path, "rb") as fh:
+        payload = pickle.load(fh)
+    built_with = payload.get("tokenizer", "v1-split")
+    if built_with != TOKENIZER_VERSION:
+        raise RuntimeError(
+            f"{path} was built with tokenizer {built_with!r} but this code "
+            f"queries with {TOKENIZER_VERSION!r}; every BM25 score would "
+            "silently come back 0. Rebuild it with:\n"
+            "  python -m finagent_pulse.pipeline --only rag --force"
+        )
+    return payload
 
 
 # --------------------------------------------------------------------------
@@ -106,10 +157,18 @@ def build_bm25_index(docs: pd.DataFrame, force: bool = False):
 
     if config.BM25_PATH.exists() and not force:
         with open(config.BM25_PATH, "rb") as fh:
-            return pickle.load(fh)
+            payload = pickle.load(fh)
+        if payload.get("tokenizer") == TOKENIZER_VERSION:
+            return payload
+        # A cached index from an older tokeniser is worse than none: it would
+        # answer every query with zeros. Rebuild it instead of honouring the
+        # cache, so an unpacked artifacts.zip heals itself.
+        log.warning("BM25 index was built with tokenizer %r; rebuilding for %r",
+                    payload.get("tokenizer", "v1-split"), TOKENIZER_VERSION)
 
-    corpus = [h.lower().split() for h in docs["headline"]]
-    payload = {"bm25": BM25Okapi(corpus), "doc_ids": docs["doc_id"].tolist()}
+    corpus = [tokenize(h) for h in docs["headline"]]
+    payload = {"bm25": BM25Okapi(corpus), "doc_ids": docs["doc_id"].tolist(),
+               "tokenizer": TOKENIZER_VERSION}
     with open(config.BM25_PATH, "wb") as fh:
         pickle.dump(payload, fh)
     log.info("BM25 index built over %d documents", len(corpus))
