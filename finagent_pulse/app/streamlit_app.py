@@ -26,6 +26,73 @@ st.set_page_config(page_title="FinAgent-Pulse", page_icon="📈",
 ACCENT = "#2E86DE"
 UP, DOWN, MUTED = "#26A69A", "#EF5350", "#8892A0"
 
+# --------------------------------------------------------------------------
+# Chart presentation
+#
+# One place for the settings that decide whether a chart can be read at a
+# glance, so the five figures in this app agree with each other instead of each
+# carrying its own font sizes. Nothing here changes what is plotted.
+# --------------------------------------------------------------------------
+GRID = "rgba(136,146,160,0.20)"
+
+# Legends sat at y=1.08 -- directly on top of the subplot titles, which made
+# both unreadable. They now sit below the plot, centred, in a size that can
+# actually be read, and never compete with a title for the same pixels.
+LEGEND_BELOW = dict(
+    orientation="h", yanchor="top", y=-0.14, xanchor="center", x=0.5,
+    font=dict(size=13), bgcolor="rgba(0,0,0,0)", itemsizing="constant",
+    itemwidth=40,
+)
+
+# Same idea, dropped far enough to clear an x-axis title. A chart that labels
+# its x-axis needs the extra room; one that does not would just get a gap.
+LEGEND_BELOW_AXIS = {**LEGEND_BELOW, "y": -0.30}
+
+def style_fig(fig: go.Figure, height: int, legend: dict | None = None,
+              title: str | None = None) -> go.Figure:
+    """Apply the shared look: readable type, quiet gridlines, room to breathe."""
+    if title:
+        fig.update_layout(title=dict(text=title, font=dict(size=15), x=0,
+                                     xanchor="left", y=0.97, yanchor="top"))
+    fig.update_layout(
+        height=height,
+        template="plotly_white",
+        font=dict(size=13),
+        hoverlabel=dict(font_size=13, namelength=-1),
+        legend=legend or LEGEND_BELOW,
+        margin=dict(l=10, r=10, t=60 if title else 40,
+                    b=90 if legend is LEGEND_BELOW_AXIS else 60),
+        bargap=0.15,
+    )
+    fig.update_xaxes(showgrid=False, tickfont=dict(size=12),
+                     title_font=dict(size=13))
+    fig.update_yaxes(gridcolor=GRID, zeroline=False, tickfont=dict(size=12),
+                     title_font=dict(size=13))
+    # Subplot titles are annotations, not layout.title, so they need sizing of
+    # their own -- otherwise they render at the Plotly default and fight the
+    # axis labels for attention.
+    for note in fig.layout.annotations or ():
+        note.font.size = 14
+    return fig
+
+
+CSS = """
+<style>
+  /* Bigger than the default, but not so big that a long value -- the Corpus
+     tab's "2018-01 -> 2024-03" is the widest one -- gets ellipsised. */
+  [data-testid="stMetricValue"] { font-size: 1.5rem; font-weight: 600; }
+  [data-testid="stMetricLabel"] p { font-size: 0.82rem; letter-spacing: .04em;
+                                    text-transform: uppercase; opacity: .72; }
+  [data-testid="stMetricDelta"] { font-size: 0.85rem; }
+  /* Tabs as a real navigation bar rather than four words in a row. */
+  .stTabs [data-baseweb="tab-list"] { gap: .35rem; }
+  .stTabs [data-baseweb="tab"] { padding: .55rem 1.05rem; font-size: .95rem;
+                                 font-weight: 500; }
+  /* Dataframes sit flush against their captions otherwise. */
+  [data-testid="stDataFrame"] { margin-top: .35rem; }
+</style>
+"""
+
 
 # --------------------------------------------------------------------------
 # Cached loaders
@@ -111,12 +178,14 @@ def price_and_forecast_chart(df: pd.DataFrame, as_of: pd.Timestamp,
     hist = df[df["date"] <= as_of].tail(lookback)
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        row_heights=[0.72, 0.28], vertical_spacing=0.06,
+                        row_heights=[0.72, 0.28], vertical_spacing=0.12,
                         subplot_titles=(f"{config.TICKER_LABEL} — price & 7-day forecast",
                                         "Daily FinBERT sentiment"))
 
     fig.add_trace(go.Scatter(x=hist["date"], y=hist["close"], name="Close",
-                             line=dict(color=ACCENT, width=2)), row=1, col=1)
+                             line=dict(color=ACCENT, width=2.2),
+                             hovertemplate="%{y:,.2f}<extra>Close</extra>"),
+                  row=1, col=1)
 
     if forecast:
         # Project onto the next business days after the decision date.
@@ -127,8 +196,10 @@ def price_and_forecast_chart(df: pd.DataFrame, as_of: pd.Timestamp,
         up = forecast["prices"][-1] >= forecast["origin_close"]
         fig.add_trace(go.Scatter(
             x=xs, y=path, name="Bi-LSTM forecast",
-            line=dict(color=UP if up else DOWN, width=2.5, dash="dot"),
-            mode="lines+markers", marker=dict(size=5)), row=1, col=1)
+            line=dict(color=UP if up else DOWN, width=2.6, dash="dot"),
+            mode="lines+markers", marker=dict(size=7, symbol="circle",
+                                              line=dict(width=0)),
+            hovertemplate="%{y:,.2f}<extra>Forecast</extra>"), row=1, col=1)
 
         # Uncertainty band: +/-1 horizon volatility around the projected path.
         vol = float(df.loc[df["date"] == as_of, "volatility_20d"].iloc[0])
@@ -138,19 +209,26 @@ def price_and_forecast_chart(df: pd.DataFrame, as_of: pd.Timestamp,
             x=list(future) + list(future)[::-1],
             y=list(np.array(forecast["prices"]) + band) +
               list((np.array(forecast["prices"]) - band)[::-1]),
-            fill="toself", fillcolor="rgba(46,134,222,0.13)",
+            fill="toself", fillcolor="rgba(46,134,222,0.16)",
             line=dict(width=0), name="±1σ band", hoverinfo="skip"), row=1, col=1)
+
+        # A marker on the decision date, so the eye finds where history stops
+        # and the projection starts without hunting for the change of dash.
+        fig.add_vline(x=as_of, line=dict(color=MUTED, width=1, dash="dash"),
+                      row=1, col=1)
 
     colors = [UP if s > 0.05 else DOWN if s < -0.05 else MUTED
               for s in hist["sent_mean"]]
     fig.add_trace(go.Bar(x=hist["date"], y=hist["sent_mean"], name="Sentiment",
-                         marker_color=colors, showlegend=False), row=2, col=1)
+                         marker_color=colors, showlegend=False,
+                         hovertemplate="%{y:+.3f}<extra>Sentiment</extra>"),
+                  row=2, col=1)
 
-    fig.update_layout(height=560, hovermode="x unified", template="plotly_white",
-                      margin=dict(l=10, r=10, t=50, b=10),
-                      legend=dict(orientation="h", y=1.08, x=0))
+    style_fig(fig, height=620)
+    fig.update_layout(hovermode="x unified")
     fig.update_yaxes(title_text="Index level", row=1, col=1)
-    fig.update_yaxes(title_text="Sentiment", range=[-1, 1], row=2, col=1)
+    fig.update_yaxes(title_text="Sentiment", range=[-1, 1], dtick=0.5,
+                     row=2, col=1)
     return fig
 
 
@@ -169,21 +247,37 @@ def fear_greed_gauge(value: float) -> go.Figure:
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=value,
-        title={"text": f"Market Fear & Greed<br><span style='font-size:0.8em'>{label}</span>"},
-        number={"suffix": "/100"},
+        title={"text": f"Market Fear & Greed<br>"
+                       f"<span style='font-size:0.75em;color:{color}'>{label}</span>",
+               "font": {"size": 16}},
+        number={"suffix": "/100", "font": {"size": 26, "color": color}},
         gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": color, "thickness": 0.75},
+            # Ticks were unlabelled apart from the two ends, and the right-hand
+            # "100" was clipped. Naming the quartiles turns the dial into
+            # something you can actually read a position off.
+            "axis": {"range": [0, 100], "tickvals": [0, 25, 50, 75, 100],
+                     "tickfont": {"size": 11}, "tickwidth": 1,
+                     "tickcolor": MUTED},
+            "bar": {"color": color, "thickness": 0.55},
+            "bgcolor": "rgba(0,0,0,0)",
+            "borderwidth": 0,
+            # 50 is the definition's own reference point -- "a typical day so
+            # far" -- so it gets a line rather than being left to the eye.
+            "threshold": {"line": {"color": MUTED, "width": 2}, "value": 50,
+                          "thickness": 0.85},
             "steps": [
-                {"range": [0, 25], "color": "#FFEBEE"},
-                {"range": [25, 45], "color": "#FFF3E0"},
-                {"range": [45, 55], "color": "#F5F5F5"},
-                {"range": [55, 75], "color": "#E8F5E9"},
-                {"range": [75, 100], "color": "#C8E6C9"},
+                {"range": [0, 25], "color": "rgba(198,40,40,0.22)"},
+                {"range": [25, 45], "color": "rgba(239,108,0,0.18)"},
+                {"range": [45, 55], "color": "rgba(158,158,158,0.18)"},
+                {"range": [55, 75], "color": "rgba(102,187,106,0.18)"},
+                {"range": [75, 100], "color": "rgba(46,125,50,0.22)"},
             ],
         },
     ))
-    fig.update_layout(height=280, margin=dict(l=20, r=20, t=60, b=10))
+    # The step colours are translucent so the dial reads the same on a light
+    # and a dark theme; the opaque pastels only worked on white.
+    fig.update_layout(height=380, margin=dict(l=45, r=45, t=85, b=45),
+                      font=dict(size=13), paper_bgcolor="rgba(0,0,0,0)")
     return fig
 
 
@@ -246,7 +340,7 @@ def tab_dashboard(df: pd.DataFrame, as_of: pd.Timestamp) -> None:
         forecast = None
         st.warning(f"Forecast unavailable: {exc}")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5 = st.columns(5, border=True)
     c1.metric("Close", f"{row['close']:,.2f}", f"{(np.exp(row['log_return']) - 1) * 100:+.2f}%")
     c2.metric("7-day forecast",
               f"{forecast['total_return_pct']:+.2f}%" if forecast else "n/a")
@@ -337,7 +431,7 @@ def tab_evaluation() -> None:
         st.caption(f"Test window {fm['split_dates']['test_range'][0]} → "
                    f"{fm['split_dates']['test_range'][1]} · {t['n_samples']} windows, "
                    "never seen during training or model selection.")
-        c = st.columns(5)
+        c = st.columns(5, border=True)
         c[0].metric("RMSE (return)", f"{t['rmse_return_overall']:.5f}")
         c[1].metric("R² (return)", f"{t['r2_return_overall']:+.4f}")
         c[2].metric("R² (price)", f"{t['r2_price_overall']:.4f}")
@@ -359,10 +453,9 @@ def tab_evaluation() -> None:
                                  name="Directional accuracy", mode="lines+markers",
                                  line=dict(color=UP, width=3)), secondary_y=True)
         fig.add_hline(y=0.5, line_dash="dash", line_color=MUTED, secondary_y=True)
-        fig.update_layout(height=340, template="plotly_white",
-                          title="Error and directional accuracy by horizon",
-                          margin=dict(l=10, r=10, t=50, b=10))
-        fig.update_xaxes(title_text="Forecast horizon (sessions)")
+        style_fig(fig, height=420, legend=LEGEND_BELOW_AXIS,
+                  title="Error and directional accuracy by horizon")
+        fig.update_xaxes(title_text="Forecast horizon (sessions)", dtick=1)
         fig.update_yaxes(title_text="RMSE (log-return)", secondary_y=False)
         fig.update_yaxes(title_text="Directional accuracy", range=[0.3, 0.85],
                          secondary_y=True)
@@ -381,10 +474,14 @@ def tab_evaluation() -> None:
         fig = go.Figure()
         for style in macro["query_style"].unique():
             sub = macro[macro["query_style"] == style]
-            fig.add_trace(go.Bar(x=sub["mode"], y=sub["ndcg@k"], name=f"{style} queries"))
-        fig.update_layout(height=340, template="plotly_white", barmode="group",
-                          title="nDCG@10 by retrieval mode and query style",
-                          margin=dict(l=10, r=10, t=50, b=10))
+            fig.add_trace(go.Bar(x=sub["mode"], y=sub["ndcg@k"],
+                                 name=f"{style} queries",
+                                 marker_color=ACCENT if style == "keyword" else UP,
+                                 hovertemplate="%{y:.4f}<extra>%{fullData.name}</extra>"))
+        style_fig(fig, height=380,
+                  title="nDCG@10 by retrieval mode and query style")
+        fig.update_layout(barmode="group")
+        fig.update_yaxes(title_text="nDCG@10")
         st.plotly_chart(fig, width="stretch")
         st.caption("BM25 wins on keyword queries and collapses on natural-language "
                    "ones; the dense index does the reverse. The fused modes are the "
@@ -394,7 +491,7 @@ def tab_evaluation() -> None:
     sv = load_json(config.REPORTS / "sentiment_validation.json")
     if sv:
         st.subheader("Sentiment engine validation")
-        c = st.columns(4)
+        c = st.columns(4, border=True)
         def _p(block: dict) -> str:
             # Quote the dependence-aware p when the report carries one; older
             # report files only have the i.i.d. Pearson p.
@@ -418,7 +515,7 @@ def tab_evaluation() -> None:
     if bt is not None:
         st.subheader("Committee backtest")
         traded = bt[bt["directive"] != "HOLD"]
-        c = st.columns(4)
+        c = st.columns(4, border=True)
         c[0].metric("Decisions", len(bt))
         c[1].metric("Traded", f"{len(traded)} ({len(traded) / len(bt):.0%})")
         if len(traded):
@@ -431,7 +528,7 @@ def tab_evaluation() -> None:
 
 def tab_corpus(df: pd.DataFrame) -> None:
     hl = load_headlines()
-    c = st.columns(4)
+    c = st.columns(4, border=True)
     c[0].metric("Headlines", f"{len(hl):,}")
     c[1].metric("Trading sessions", f"{len(df):,}")
     c[2].metric("Period", f"{hl['date'].min():%Y-%m} → {hl['date'].max():%Y-%m}")
@@ -445,9 +542,10 @@ def tab_corpus(df: pd.DataFrame) -> None:
     fig.add_trace(go.Scatter(x=yearly["date"], y=yearly["mean_sentiment"],
                              name="Mean sentiment", mode="lines+markers",
                              line=dict(color=DOWN, width=3)), secondary_y=True)
-    fig.update_layout(height=340, template="plotly_white",
-                      title="Corpus coverage and sentiment by year",
-                      margin=dict(l=10, r=10, t=50, b=10))
+    style_fig(fig, height=380, title="Corpus coverage and sentiment by year")
+    fig.update_xaxes(dtick=1)
+    fig.update_yaxes(title_text="Headlines", secondary_y=False)
+    fig.update_yaxes(title_text="Mean sentiment", secondary_y=True)
     st.plotly_chart(fig, width="stretch")
     st.caption("2024 covers January–March only: the source corpus ends 2024-03-04.")
 
@@ -468,6 +566,7 @@ def tab_corpus(df: pd.DataFrame) -> None:
 # Main
 # --------------------------------------------------------------------------
 def main() -> None:
+    st.markdown(CSS, unsafe_allow_html=True)
     st.title("📈 FinAgent-Pulse")
     st.caption("Multi-agent quantitative trading & sentiment analysis using "
                "Hybrid RAG and time-series forecasting — S&P 500, 2018–2024")
