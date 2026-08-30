@@ -15,7 +15,7 @@ import pytest
 
 from finagent_pulse import config
 from finagent_pulse.agents.committee import (
-    _fmt_fields, _fmt_observations, _quant_observations, _render_quant_report,
+    _fmt_evidence, _fmt_fields, _fmt_observations, _quant_observations, _render_quant_report,
     _render_risk_report, _render_sentiment_report, _risk_observations,
     _sentiment_observations, directive_contradiction, guard_directive)
 
@@ -316,3 +316,15 @@ def test_a_contradicting_narration_is_replaced_by_the_deterministic_report():
 
 def test_a_sound_narration_is_kept():
     assert guard_directive("The directive is HOLD.", "TEMPLATE", "HOLD") == "The directive is HOLD."
+
+
+def test_the_brief_carries_the_headlines_with_the_arms_that_found_them():
+    """The Risk Manager justifies against coverage, not just against a mean score."""
+    rendered = _fmt_evidence([{"date": "2024-03-01", "label": "negative",
+                               "sentiment": -0.3747, "provenance": "bm25+vector",
+                               "headline": "Is S&P 500 in a bubble zone?"}])
+    assert "bubble zone" in rendered and "bm25+vector" in rendered and "-0.37" in rendered
+
+
+def test_an_empty_retrieval_is_named_rather_than_left_blank():
+    assert "nothing retrieved" in _fmt_evidence([])

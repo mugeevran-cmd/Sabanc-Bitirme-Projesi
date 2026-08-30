@@ -82,6 +82,16 @@ def _fmt_observations(obs: list[dict] | None) -> str:
     return "\n".join(f"- [{o['severity']}] {o['text']}" for o in order)
 
 
+def _fmt_evidence(evidence: list[dict] | None, limit: int = 8) -> str:
+    """Retrieved headlines, with the retrieval arms that surfaced each one."""
+    if not evidence:
+        return "- (nothing retrieved for this window)"
+    return "\n".join(
+        f"- [{d['date']}] ({d['label']}, {d['sentiment']:+.2f}) via {d['provenance']}"
+        f" -- {d['headline']}"
+        for d in evidence[:limit])
+
+
 def _brief(*sections: tuple[str, str]) -> str:
     """Assemble the labelled sections a narration prompt is built from."""
     return "\n\n".join(f"## {title}\n{body}" for title, body in sections if body)
@@ -767,6 +777,11 @@ def risk_manager_node(state: CommitteeState) -> dict:
              _fmt_fields(sent, skip=("retrieval",))),
             ("Upstream: sentiment cross-checks",
              _fmt_observations(sent.get("observations"))),
+            # The headlines themselves, not just the scores computed from them.
+            # A directive justified against "sentiment_now: -0.16" is justified
+            # against a number; justified against the coverage that produced it,
+            # it can say what the market was actually arguing about.
+            ("Upstream: the retrieved headlines", _fmt_evidence(sent.get("evidence"))),
             ("Upstream: how the news evidence was retrieved",
              _fmt_fields(sent.get("retrieval", {}))),
         ),
