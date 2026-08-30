@@ -132,6 +132,59 @@ def run_fold(name: str, cfg: config.LSTMConfig, df: pd.DataFrame,
     return summary, decisions
 
 
+# Windows for probing the shipped checkpoint. Which split each falls in matters
+# more than the dates: the model was fitted through 2022-06-30 and selected on
+# validation through 2023-03-31, so only the last row is out-of-sample.
+PROBE_WINDOWS = [
+    ("2018_q4_selloff", "2018-09-01", "2019-01-31", "train", "Q4 2018 selloff, -19.8%"),
+    ("2020_covid_crash", "2020-02-01", "2020-04-30", "train", "COVID crash, -33.9%"),
+    ("2022_h1", "2022-01-01", "2022-06-30", "train", "first half of the 2022 bear"),
+    ("2022_h2", "2022-07-01", "2022-12-31", "validation", "second half of the 2022 bear"),
+    ("2023_q1", "2023-01-01", "2023-03-31", "validation", "end of the validation span"),
+    ("2023_24_test", "2023-04-01", "2024-02-21", "test", "the shipped test window"),
+]
+
+PROBE_CSV = config.REPORTS / "shipped_model_probe.csv"
+
+
+def probe_shipped_model(save: bool = True) -> pd.DataFrame:
+    """Run the *shipped* checkpoint across earlier windows, without refitting.
+
+    Separate question from :func:`run_all`, and it needs a different reading.
+    Every window before 2023-04 is data this model was fitted or selected on, so
+    nothing here measures generalisation. What it does answer is behavioural:
+    does the decision rule ever produce a SELL, and if so where.
+    """
+    from finagent_pulse.evaluation import committee_backtest
+
+    rows = []
+    for name, start, end, split, description in PROBE_WINDOWS:
+        decisions = committee_backtest(save=False, start=start, end=end)
+        if not len(decisions):
+            continue
+        counts = decisions["directive"].value_counts()
+        negative = decisions["forecast_7d_pct"] < 0
+        rows.append({
+            "window": name, "split": split, "regime": description,
+            "n_decisions": len(decisions),
+            "n_buy": int(counts.get("BUY", 0)),
+            "n_sell": int(counts.get("SELL", 0)),
+            "n_hold": int(counts.get("HOLD", 0)),
+            "share_forecast_negative": float(negative.mean()),
+            "min_forecast_pct": float(decisions["forecast_7d_pct"].min()),
+            "mean_forecast_pct": float(decisions["forecast_7d_pct"].mean()),
+            "mean_realised_pct": float(decisions["realised_7d_pct"].mean()),
+        })
+        log.info("%-16s %-10s n=%3d SELL=%2d neg=%4.0f%% min=%+.3f%%",
+                 name, split, rows[-1]["n_decisions"], rows[-1]["n_sell"],
+                 100 * rows[-1]["share_forecast_negative"], rows[-1]["min_forecast_pct"])
+
+    table = pd.DataFrame(rows)
+    if save:
+        table.to_csv(PROBE_CSV, index=False)
+    return table
+
+
 def run_all(backtest: bool = True, save: bool = True) -> pd.DataFrame:
     df = merge_features()
     rows, frames = [], []
@@ -156,8 +209,16 @@ def run_all(backtest: bool = True, save: bool = True) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
+    import sys
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s",
                         datefmt="%H:%M:%S")
+    if "--probe" in sys.argv:
+        probe = probe_shipped_model()
+        print("\n" + probe[["window", "split", "n_decisions", "n_sell",
+                             "share_forecast_negative", "min_forecast_pct"]]
+              .round(4).to_string(index=False))
+        raise SystemExit
     out = run_all()
     cols = ["fold", "test_range", "directional_acc_h7", "skill_vs_naive_pct",
             "n_buy", "n_sell", "n_hold", "decision_day_accuracy",

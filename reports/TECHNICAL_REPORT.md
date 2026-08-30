@@ -556,12 +556,15 @@ mechanism is upstream of the rule:
 | **bear_2022** | **1.2%** | **+1.92%** | **−0.55%** | **+2.47 pp** |
 | bull_2023 | 0.0% | +0.36% | +0.61% | −0.24 pp |
 
-In the bear market the model called a decline on **1 of 82 decision days** and
-averaged a +1.92% forecast while the index averaged −0.55% over the same
-horizons. In the shipped window it never once forecast a fall. The direction
-rule takes the sign of the forecast, so a model that does not produce negative
-forecasts cannot produce SELL directives, whatever the market does. The model
-has learned the unconditional drift.
+In the bear market the refitted model called a decline on **1 of 82 decision
+days** and averaged a +1.92% forecast while the index averaged −0.55% over the
+same horizons. The direction rule takes the sign of the forecast, so a model
+that does not produce negative forecasts cannot produce SELL directives,
+whatever the market does.
+
+These are refitted models, each seeing its fold's test window for the first
+time. §6.5 asks the same question of the shipped checkpoint and gets a
+different-looking answer, which turns out to be the more informative one.
 
 **Outside a rising market the forecaster is worse than doing nothing.** In 2022
 directional accuracy is 0.446 and skill against the naive persistence baseline
@@ -578,6 +581,48 @@ on only ~15 months. And directional accuracy on 75–82 decision days carries th
 same power problem as §5.4.1. The finding that survives all of that is the
 structural one: the sign of the forecast is almost never negative, and that is
 visible in every fold.
+
+### 6.5 The shipped model on earlier windows
+
+§6.4 refits per fold. The complementary question is what the **shipped**
+checkpoint does when it is run over earlier periods without retraining — does
+the decision rule ever produce a SELL at all. It is a behavioural question, not
+a performance one: this model was fitted through 2022-06-30 and selected on
+validation through 2023-03-31, so every window below except the last is data it
+has already seen. Nothing here measures generalisation.
+
+`python -m finagent_pulse.walkforward --probe`
+
+| Window | Split | n | SELL | Forecasts below zero | Most negative forecast |
+|---|---|---|---|---|---|
+| Q4 2018 selloff | train | 32 | **10** | 53% | **−1.96%** |
+| COVID crash 2020 | train | 19 | **4** | 42% | **−1.51%** |
+| 2022 H1 | train | 39 | **2** | 15% | **−1.44%** |
+| 2022 H2 | validation | 40 | 0 | 0% | +0.02% |
+| 2023 Q1 | validation | 19 | 0 | 0% | +0.18% |
+| 2023-04 → 2024-02 | **test** | 72 | 0 | 15% | −0.19% |
+
+**The model does issue SELL directives — sixteen of them, and every one falls
+inside its training window.** Not one comes from validation or test.
+
+The magnitude column explains why. On training data the model produces forecasts
+as low as −1.96%, comfortably past the conviction gate. Out of sample its most
+negative forecast in 72 decisions is **−0.19%**, an order of magnitude smaller.
+Fifteen per cent of test-window forecasts *are* negative; none is large enough
+to clear the signal-to-noise floor, so none becomes a SELL.
+
+That is a sharper statement than either §6.4 or the shipped backtest alone
+supports. The forecaster is not incapable of predicting declines — it predicts
+them where it has already seen them. Outside its training data its output
+collapses toward the drift, and the conviction gate then filters out what little
+negative signal remains. The zero-SELL result in §6.3 is the visible symptom;
+this is the mechanism.
+
+Two caveats worth stating. The in-sample rows are memorisation and should never
+be quoted as evidence the system detects downturns. And 2022 H2 and 2023 Q1 are
+validation data used for early stopping, so their clean zeros are not
+independent evidence either — the honest comparison is the training rows against
+the test row.
 
 ---
 
@@ -607,11 +652,13 @@ visible in every fold.
    reasonable proxy but is not an editorial judgement, and it structurally
    favours retrievers that key on entity terms.
 4. **No transaction costs, slippage or borrowing costs** in the backtest.
-5. **The short side does not exist.** Zero SELL directives, in all four
-   regimes tested (§6.4), because the forecaster almost never produces a
-   negative 7-day forecast — once in 82 decision days during the 2022 bear
-   market, and never in the shipped window. This is a property of the model,
-   not of the test period.
+5. **The short side never fires out of sample.** Zero SELL directives across
+   four refitted regime folds (§6.4) and zero in the shipped test window. The
+   shipped model does issue SELLs — sixteen of them — but every one lands
+   inside its own training data (§6.5). Out of sample its most negative
+   forecast in 72 decisions is −0.19%, against −1.96% in training, so nothing
+   clears the conviction gate. The short side is a property of memorised
+   periods, not a capability.
 6. **The headline metrics are bull-market metrics** (§6.4). Refitted on a
    2022 test window the model scores 0.446 directional accuracy and −16.3%
    skill against the naive baseline; its directional accuracy never
