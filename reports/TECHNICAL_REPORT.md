@@ -82,7 +82,9 @@ coverage count, plus 5-day smoothing and a momentum term.
 
 There are no human sentiment labels for this corpus, so the engine is validated
 the way it is actually used: **against the market**, on the held-out test period
-only (223 sessions, 2023-04 → 2024-02).
+only (230 sessions, 2023-04-03 → 2024-03-01). That is seven sessions more than
+the forecaster's 223 test windows below: the forecaster drops the tail that has
+no 7-day target, whereas this check only needs the next session.
 
 | Check | Result | Interpretation |
 |---|---|---|

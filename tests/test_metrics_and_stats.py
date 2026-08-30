@@ -138,6 +138,36 @@ def test_an_unknown_key_falls_back(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# The committed reports must not fall behind the code that writes them
+#
+# `_block_bootstrap_p` was added and the report was updated to quote its
+# p-values, but the evaluate stage was never re-run: for two commits the
+# committed JSON carried only the i.i.d. Pearson p while the write-up cited a
+# block-bootstrap figure that existed nowhere in the repository. Nothing failed.
+# --------------------------------------------------------------------------
+def _committed(name: str) -> dict:
+    path = config.REPORTS / name
+    if not path.exists():
+        pytest.skip(f"pipeline has not produced {name}")
+    return json.loads(path.read_text())
+
+
+def test_the_committed_sentiment_report_carries_a_dependence_aware_p():
+    """The report quotes it, so it has to be in the artefact that backs it."""
+    sv = _committed("sentiment_validation.json")
+    for block in ("corr_same_day", "corr_next_day"):
+        assert "p_value_block_bootstrap" in sv[block], (
+            f"{block} has no block-bootstrap p -- reports/ is stale against "
+            "evaluation.py. Re-run: python -m finagent_pulse.pipeline --only evaluate")
+
+
+def test_the_summary_and_the_sentiment_report_agree():
+    """`run_all` writes the same dict to both; drift means one was not re-run."""
+    assert _committed("evaluation_summary.json")["sentiment_validation"] == \
+        _committed("sentiment_validation.json")
+
+
+# --------------------------------------------------------------------------
 # C2 -- paired comparison between retrieval modes
 # --------------------------------------------------------------------------
 @pytest.fixture(scope="module")
