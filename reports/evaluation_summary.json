@@ -84,7 +84,7 @@
     "forecast_directional_accuracy": 0.72,
     "n_traded": 12,
     "traded_hit_rate": 0.75,
-    "mean_strategy_return_pct": 0.06744582129516674,
+    "mean_strategy_return_pct": 0.0674165420795502,
     "buy_and_hold_mean_7d_pct": 0.6062232278261751
   }
 }
