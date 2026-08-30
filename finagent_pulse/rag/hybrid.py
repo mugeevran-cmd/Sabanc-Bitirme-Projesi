@@ -235,11 +235,28 @@ class HybridRetriever:
         return out, diagnostics
 
     # ------------------------------------------------------- principles lookup
+    @staticmethod
+    def _principle_body(title: str | None, document: str) -> str:
+        """Return the chunk text without the heading the indexer prepended.
+
+        ``rag_index.build_principles_index`` embeds ``"{title}. {body}"`` so the
+        principle name is part of the vector. Every caller also renders the name
+        from metadata, so returning the raw document makes each citation read
+        "**Bull Trap** — Bull Trap. A rally that ...". Strip it here, once, so no
+        consumer has to know how the chunk was assembled.
+        """
+        prefix = f"{title}. "
+        if title and document.startswith(prefix):
+            return document[len(prefix):].strip()
+        # A heading-only chunk has no body to show beyond the name itself.
+        return "" if title and document.strip() == title else document.strip()
+
     def retrieve_principles(self, query: str, top_k: int = 4) -> list[dict]:
         """Semantic lookup over the investment-guideline knowledge base."""
         res = self.principles.query(query_texts=[query], n_results=top_k)
         return [
-            {"principle": m.get("principle"), "source": m.get("source"), "text": d}
+            {"principle": m.get("principle"), "source": m.get("source"),
+             "text": self._principle_body(m.get("principle"), d)}
             for d, m in zip(res["documents"][0], res["metadatas"][0])
         ]
 

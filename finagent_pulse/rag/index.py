@@ -217,8 +217,12 @@ def build_principles_index(force: bool = False):
                 continue
             lines = block.splitlines()
             title = lines[0].lstrip("# ").strip()
-            # Store the body without its heading; the heading travels in
-            # metadata so retrieved text does not repeat the principle name.
+            # The heading is prepended to the body so it is part of what gets
+            # embedded -- "Bull Trap" carries most of that chunk's meaning and
+            # dropping it would make the chunk much harder to retrieve. It is
+            # also stored in metadata, so a caller that renders the name itself
+            # would repeat it; HybridRetriever.retrieve_principles strips the
+            # prefix back off for exactly that reason.
             body = " ".join(l.strip() for l in lines[1:] if l.strip())
             ids.append(f"{source}-{i}")
             texts.append(f"{title}. {body}" if body else title)

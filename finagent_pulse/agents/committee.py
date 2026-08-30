@@ -427,7 +427,7 @@ def risk_manager_node(state: CommitteeState) -> dict:
     }
 
     principle_block = "\n".join(
-        f"- **{p['principle']}** ({p['source']}): {p['text'][:260]}" for p in principles)
+        f"- **{p['principle']}** ({p['source']}): {p['text']}" for p in principles)
     fallback = _render_risk_report(findings, quant, sent)
     prose = _narrate(
         state,
@@ -521,7 +521,12 @@ def _render_risk_report(f: dict, quant: dict, sent: dict) -> str:
         lines += ["", f"> {f['trap_warning']}"]
     lines += ["", "**Governing principles consulted:**"]
     for p in f["principles"]:
-        lines.append(f"- **{p['principle']}** — {p['text'][:200].rstrip()}...")
+        # Cited in full. Every chunk in the knowledge base is one short
+        # paragraph (148-348 characters), so the old 200-character cut severed
+        # most of them mid-sentence -- and a principle that stops before its
+        # own conclusion cannot justify the directive it is cited for.
+        lines.append(f"- **{p['principle']}** — {p['text']}"
+                     if p["text"] else f"- **{p['principle']}**")
     return "\n".join(lines)
 
 
