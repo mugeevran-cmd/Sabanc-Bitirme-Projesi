@@ -609,7 +609,8 @@ def risk_manager_node(state: CommitteeState) -> dict:
     }
 
     principle_block = "\n".join(
-        f"- **{p['principle']}** ({p['source']}): {p['text'][:260]}" for p in principles)
+        f"- **{p['principle']}** ({p['source']}): {principle_body(p)}"
+        for p in principles)
     fallback = _render_risk_report(findings, quant, sent)
     prose = _narrate(
         state,
@@ -750,6 +751,23 @@ def retrieve_governing_principles(agreement: str, quant: dict, sent: dict,
     return out[:cap]
 
 
+def principle_body(principle: dict) -> str:
+    """A principle's text without the heading the index prepends to it.
+
+    ``build_principles_index`` embeds each chunk as ``"{title}. {body}"``
+    because the title carries signal for the embedding. Rendering that text
+    under a bold heading of the same name repeats the name twice, so strip
+    the prefix back off at the point of display.
+    """
+    name = (principle.get("principle") or "").strip()
+    text = (principle.get("text") or "").strip()
+    if name and text[:len(name)].casefold() == name.casefold():
+        stripped = text[len(name):].lstrip(" .:;\u2014-").strip()
+        if stripped:                      # a title-only chunk keeps its text
+            return stripped
+    return text
+
+
 def _render_risk_report(f: dict, quant: dict, sent: dict) -> str:
     lines = [
         "### Risk Manager — Final Directive",
@@ -780,7 +798,7 @@ def _render_risk_report(f: dict, quant: dict, sent: dict) -> str:
                   + "; ".join(o["text"] for o in notes) + "."]
     lines += ["", "**Governing principles consulted:**"]
     for p in f["principles"]:
-        lines.append(f"- **{p['principle']}** — {p['text'][:200].rstrip()}...")
+        lines.append(f"- **{p['principle']}** — {principle_body(p)}")
     return "\n".join(lines)
 
 

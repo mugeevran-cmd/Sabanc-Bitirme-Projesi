@@ -16,7 +16,7 @@ import pytest
 
 from finagent_pulse import config
 from finagent_pulse.agents.committee import (
-    principle_queries, retrieve_governing_principles)
+    principle_body, principle_queries, retrieve_governing_principles)
 
 
 def q(agreement="sentiment_neutral", regime="normal", contrarian=None) -> list[str]:
@@ -124,3 +124,59 @@ def test_traps_are_actually_retrieved_on_a_conflict():
     got = [p["principle"] for p in retrieve_governing_principles(
         "conflicting", {"volatility_regime": "normal"}, {"contrarian_flag": None})]
     assert any("Trap" in name for name in got), got
+
+
+# --------------------------------------------------------------------------
+# How a retrieved principle is written into the report
+# --------------------------------------------------------------------------
+def test_the_body_does_not_repeat_the_heading():
+    """`build_principles_index` stores "{title}. {body}"; the bullet adds the
+    title again, so the name was printed twice in every cited principle."""
+    body = principle_body({
+        "principle": "Margin of Safety",
+        "text": "Margin of Safety. The central concept of investment.",
+    })
+    assert body == "The central concept of investment."
+
+
+def test_the_heading_is_stripped_case_insensitively():
+    metadata = {"principle": "Mr. Market", "text": "MR. MARKET - his quotes serve you."}
+    assert principle_body(metadata) == "his quotes serve you."
+
+
+def test_a_body_that_only_repeats_the_name_is_kept():
+    """A heading-only chunk must not render as an empty bullet."""
+    assert principle_body({"principle": "Herding", "text": "Herding"}) == "Herding"
+
+
+def test_text_without_the_prefix_is_left_alone():
+    metadata = {"principle": "Bull Trap", "text": "A sharp upward move."}
+    assert principle_body(metadata) == "A sharp upward move."
+
+
+def test_the_citation_is_a_whole_sentence():
+    """The bullet used to cut at 200 characters and append an ellipsis, which
+    landed mid-word. Every principle in the knowledge base is short enough to
+    quote in full, so the report quotes it in full."""
+    from finagent_pulse.agents.committee import _render_risk_report
+
+    long_body = ("Position size should scale with the confidence-to-volatility "
+                 "ratio, not with the magnitude of the forecast alone. When "
+                 "realised volatility sits in the top quintile of its trailing "
+                 "distribution, cut standard position size by at least half "
+                 "regardless of signal strength.")
+    findings = {
+        "directive": "HOLD", "position_pct": 0.0, "conviction": 0.4,
+        "agreement": "no_signal", "reasons": ["the forecast is flat"],
+        "trap_warning": None, "observations": [],
+        "principles": [{"principle": "Position Sizing Under Uncertainty",
+                        "source": "risk_management",
+                        "text": f"Position Sizing Under Uncertainty. {long_body}"}],
+        "invalidation": {"horizon_days": 7, "expected_move_pct": 0.1,
+                         "noise_band_pct": 1.2},
+    }
+    report = _render_risk_report(findings, {}, {})
+
+    assert f"- **Position Sizing Under Uncertainty** — {long_body}" in report
+    assert "..." not in report
+    assert report.count("Position Sizing Under Uncertainty") == 1
