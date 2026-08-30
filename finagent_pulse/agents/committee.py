@@ -12,6 +12,7 @@ the quantitative model and the news sentiment point in opposite directions.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Annotated, Any, TypedDict
 
 import numpy as np
@@ -43,6 +44,59 @@ class CommitteeState(TypedDict, total=False):
     reports: Annotated[dict, _merge]
 
 
+# --------------------------------------------------------------------------
+# Narration
+# --------------------------------------------------------------------------
+# The agents already compute *why* they decided what they decided -- the rule
+# that fired, how close the call came to being a different one, the principle
+# that governs it, what would void it.  These helpers hand that chain to the
+# model as labelled sections rather than as a stringified Python dict, so the
+# prose can be a justification instead of a paraphrase.
+
+def _fmt_value(v: Any) -> str:
+    if isinstance(v, float):
+        return f"{v:,.4f}".rstrip("0").rstrip(".")
+    if isinstance(v, list) and v and isinstance(v[0], float):
+        return "[" + ", ".join(f"{x:,.2f}" for x in v) + "]"
+    return str(v)
+
+
+def _fmt_fields(f: dict, skip: tuple[str, ...] = ()) -> str:
+    """Scalar findings as ``key: value`` lines.
+
+    The narrative fields (``reasons``, ``observations``, ``principles``) are
+    always skipped: they are prose already and get their own sections, where
+    the model can see them as the argument they are rather than as a nested
+    repr buried three levels inside a dict.
+    """
+    drop = set(skip) | {"reasons", "observations", "principles", "evidence"}
+    return "\n".join(f"- {k}: {_fmt_value(v)}"
+                     for k, v in f.items() if k not in drop) or "- (none)"
+
+
+def _fmt_observations(obs: list[dict] | None) -> str:
+    """Cross-checks, integrity flags first -- they outrank everything else."""
+    if not obs:
+        return "- (none fired: the numbers cross-check cleanly)"
+    order = sorted(obs, key=lambda o: o["severity"] != "integrity")
+    return "\n".join(f"- [{o['severity']}] {o['text']}" for o in order)
+
+
+def _brief(*sections: tuple[str, str]) -> str:
+    """Assemble the labelled sections a narration prompt is built from."""
+    return "\n\n".join(f"## {title}\n{body}" for title, body in sections if body)
+
+
+_ANCHOR = (
+    "## The report the rules already produced\n"
+    "Below is the deterministic rendering of everything above. Your prose must "
+    "carry every claim it makes, in the same order of importance. Do not "
+    "introduce a number, date, ticker or headline that does not appear in this "
+    "brief -- if something you would normally comment on is missing, say it is "
+    "not available rather than supplying it.\n\n"
+)
+
+
 def _narrate(state: CommitteeState, system: str, prompt: str, fallback: str) -> str:
     """Write agent prose, unless the caller asked for findings only.
 
@@ -51,10 +105,16 @@ def _narrate(state: CommitteeState, system: str, prompt: str, fallback: str) -> 
     = 225 requests for output nobody reads, and it made the backtest depend on a
     network round-trip. Callers that only want the findings pass
     ``narrative=False`` and get the deterministic template instead.
+
+    The deterministic report is appended to every prompt as an anchor. It costs
+    a few hundred tokens and buys two things: the model writes *from* the
+    committee's own reasoning instead of reconstructing it from raw fields, and
+    every figure it could legitimately cite is already on the page, so there is
+    nothing it needs to invent to finish a sentence.
     """
     if not state.get("narrative", True):
         return fallback
-    return get_writer().write(system, prompt, fallback)
+    return get_writer().write(system, f"{prompt}\n\n{_ANCHOR}{fallback}", fallback)
 
 
 # --------------------------------------------------------------------------
@@ -65,6 +125,25 @@ DATA_ANALYST_SYSTEM = (
     "committee. You interpret model output and price structure. You never "
     "invent numbers: every figure you cite must appear in the findings given "
     "to you. Write 3-5 tight paragraphs of markdown, no preamble."
+)
+
+# A numbered skeleton, rather than "explain the findings". The committee's
+# value is in the order it reasons: magnitude is meaningless until it has been
+# measured against noise, and none of it is worth reading if the cross-checks
+# say the inputs are broken.
+QUANT_TASK = (
+    "Work through, in this order:\n"
+    "1. What the model projects, and the direction of the trajectory.\n"
+    "2. Whether that move is large enough to trade against 7-day noise -- lead "
+    "with the signal-to-noise ratio against the conviction floor, not with the "
+    "raw percentage.\n"
+    "3. What the price structure says: volatility regime, RSI, distance from "
+    "the 50-day average.\n"
+    "4. Every cross-check that fired, and what it means for how much weight the "
+    "forecast can carry.\n"
+    "If any cross-check is marked `integrity`, open with it: a forecast built "
+    "on inputs the committee doubts is not a forecast, and no amount of "
+    "interpretation downstream repairs that."
 )
 
 
@@ -126,9 +205,15 @@ def data_analyst_node(state: CommitteeState) -> dict:
     prose = _narrate(
         state,
         DATA_ANALYST_SYSTEM,
-        "Explain these quantitative findings for the investment committee. "
-        "Be explicit about whether the forecast is large enough to trade "
-        f"against 7-day noise.\n\nFINDINGS:\n{findings}",
+        _brief(
+            ("What to write", QUANT_TASK),
+            ("Measurements", _fmt_fields(findings, skip=("forecast_prices",))),
+            ("Structural anomalies",
+             "\n".join(f"- {a}" for a in findings["anomalies"])
+             or "- (none: price action is within its trailing distribution)"),
+            ("Cross-checks on the forecast itself",
+             _fmt_observations(findings["observations"])),
+        ),
         fallback,
     )
     return {"quant": findings, "reports": {"data_analyst": prose}}
@@ -271,6 +356,22 @@ SENTIMENT_CRITIC_SYSTEM = (
     "tight paragraphs of markdown, no preamble."
 )
 
+SENTIMENT_TASK = (
+    "Work through, in this order:\n"
+    "1. Where the sentiment channel stands: the session reading, the 5-day "
+    "average against its 20-day baseline, and the direction of travel.\n"
+    "2. What the retrieval actually surfaced -- name the dominant drivers and "
+    "quote at most three headlines from the evidence, by date.\n"
+    "3. Whether this reads as genuine information or as crowd reaction. "
+    "Coverage volume, one-sidedness and the Fear & Greed percentile are the "
+    "evidence for that call.\n"
+    "4. Every cross-check that fired, especially where the channel disagrees "
+    "with itself.\n"
+    "The retrieval diagnostics say how the evidence was found. If the knowledge "
+    "graph expanded the query, say which concepts it reached for and what that "
+    "surfaced -- that expansion is part of the reasoning, not plumbing."
+)
+
 
 def sentiment_critic_node(state: CommitteeState) -> dict:
     df: pd.DataFrame = state["features"]
@@ -341,14 +442,20 @@ def sentiment_critic_node(state: CommitteeState) -> dict:
     findings["observations"] = _sentiment_observations(findings)
 
     evidence_block = "\n".join(
-        f"- [{d.date}] ({d.label}, {d.sentiment:+.2f}) {d.headline}" for d in docs)
+        f"- [{d.date}] ({d.label}, {d.sentiment:+.2f}) via {d.provenance} -- {d.headline}"
+        for d in docs) or "- (nothing retrieved for this window)"
     fallback = _render_sentiment_report(findings, docs)
     prose = _narrate(
         state,
         SENTIMENT_CRITIC_SYSTEM,
-        "Assess the news environment for the committee. Identify the core "
-        "drivers and say whether this looks like genuine information or crowd "
-        f"reaction.\n\nFINDINGS:\n{findings}\n\nRETRIEVED EVIDENCE:\n{evidence_block}",
+        _brief(
+            ("What to write", SENTIMENT_TASK),
+            ("Measurements", _fmt_fields(findings, skip=("retrieval",))),
+            ("How the evidence was retrieved", _fmt_fields(diag)),
+            ("Retrieved evidence", evidence_block),
+            ("Cross-checks on the sentiment channel",
+             _fmt_observations(findings["observations"])),
+        ),
         fallback,
     )
     return {"sentiment": findings, "reports": {"sentiment_critic": prose}}
@@ -483,8 +590,33 @@ RISK_MANAGER_SYSTEM = (
     "hold the final word. You are deliberately conservative: capital "
     "preservation outranks opportunity. You have been given a directive that "
     "was computed by rule; explain and justify it against the cited investment "
-    "principles. Do not contradict the directive. Write 3-5 tight paragraphs "
-    "of markdown, no preamble."
+    "principles. Do not contradict the directive, and do not restate it as "
+    "though it were your own judgement call -- it is the output of a rule, and "
+    "your job is to show that the rule was right here. You never invent "
+    "numbers or dates: every figure you cite must appear in the brief. Write "
+    "3-5 tight paragraphs of markdown, no preamble."
+)
+
+# The directive is one word; the justification is the report. This is the shape
+# a reader needs in order to audit the call rather than take it on faith --
+# which rule fired, how close it came to firing the other way, what governs it,
+# and what would prove it wrong.
+RISK_TASK = (
+    "Justify the computed directive, in this order:\n"
+    "1. The rule that produced it. Name the gate and the numbers that cleared "
+    "or failed it.\n"
+    "2. How close this was to being a different call. The counterfactual is in "
+    "the cross-checks -- a HOLD that missed the floor by a hair is a different "
+    "report from one that was nowhere near, and the reader is entitled to know "
+    "which one this is.\n"
+    "3. The principle that governs the decision. Quote the retrieved principles "
+    "and apply them to this specific state; do not cite one that has no "
+    "bearing on what happened here.\n"
+    "4. The invalidation frame: the horizon, the noise band, and what would "
+    "void the thesis.\n"
+    "If the cross-checks carry an `integrity` flag, that comes first and "
+    "colours everything else: a directive resting on inputs the committee has "
+    "already doubted must be reported as such, however sound the rule was."
 )
 
 
@@ -609,20 +741,86 @@ def risk_manager_node(state: CommitteeState) -> dict:
     }
 
     principle_block = "\n".join(
-        f"- **{p['principle']}** ({p['source']}): {p['text']}" for p in principles)
+        f"- **{p['principle']}** ({p['source']}): {p['text']}"
+        for p in principles) or "- (no principle matched this decision state)"
     fallback = _render_risk_report(findings, quant, sent)
     prose = _narrate(
         state,
         RISK_MANAGER_SYSTEM,
-        f"The committee's computed directive is {directive} at "
-        f"{position_pct}% of standard position size. Justify it.\n\n"
-        f"QUANT:\n{ {k: v for k, v in quant.items() if k != 'forecast_prices'} }\n\n"
-        f"SENTIMENT:\n{ {k: v for k, v in sent.items() if k not in ('evidence', 'retrieval')} }\n\n"
-        f"RISK FINDINGS:\n{ {k: v for k, v in findings.items() if k != 'principles'} }\n\n"
-        f"APPLICABLE PRINCIPLES:\n{principle_block}",
+        _brief(
+            ("What to write", RISK_TASK),
+            ("The computed directive",
+             f"- directive: {directive}\n"
+             f"- position size: {position_pct}% of standard\n"
+             f"- conviction: {conviction:.0%}\n"
+             f"- agreement between the two streams: {agreement.replace('_', ' ')}"),
+            ("Why the rules produced it",
+             "\n".join(f"- {r}" for r in reasons)),
+            ("How close it came to another call", _fmt_observations(observations)),
+            ("Governing principles retrieved for this state", principle_block),
+            ("Invalidation frame", _fmt_fields(findings["invalidation"])),
+            ("Upstream: quantitative findings",
+             _fmt_fields(quant, skip=("forecast_prices",))),
+            ("Upstream: quantitative cross-checks",
+             _fmt_observations(quant.get("observations"))),
+            ("Upstream: sentiment findings",
+             _fmt_fields(sent, skip=("retrieval",))),
+            ("Upstream: sentiment cross-checks",
+             _fmt_observations(sent.get("observations"))),
+            ("Upstream: how the news evidence was retrieved",
+             _fmt_fields(sent.get("retrieval", {}))),
+        ),
         fallback,
     )
+    prose = guard_directive(prose, fallback, directive)
     return {"risk": findings, "reports": {"risk_manager": prose}}
+
+
+# A model asserting the call, rather than mentioning one. The committee's own
+# cross-checks legitimately name the *other* directive -- "had the forecast
+# cleared the floor, the directive would have been BUY" -- so a bare search for
+# the word finds the counterfactual and flags a report that is doing its job.
+# Only a claim about what the call *is* counts.
+_DIRECTIVE_CLAIM = re.compile(
+    r"\b(?:directive|recommendation|verdict|call|rating|stance|position)\b"
+    r"[^.\n]{0,40}?"
+    r"\b(?:is|are|remains?|stands? at|:)\s*"
+    r"[*`_\s]*\b(BUY|SELL|HOLD)\b",
+    re.IGNORECASE)
+
+
+def directive_contradiction(prose: str, directive: str) -> str | None:
+    """Return why ``prose`` disagrees with ``directive``, or ``None`` if it does not.
+
+    Narration is the one part of the report a language model writes, and the
+    directive is the one thing it must not restate wrongly. Two failures are
+    caught: asserting a different call, and never naming the real one -- a
+    justification that cannot bring itself to say the word is not a
+    justification of it.
+    """
+    claimed = {m.group(1).upper() for m in _DIRECTIVE_CLAIM.finditer(prose)}
+    wrong = claimed - {directive.upper()}
+    if wrong:
+        return f"prose asserts {'/'.join(sorted(wrong))}"
+    if not re.search(rf"\b{re.escape(directive)}\b", prose, re.IGNORECASE):
+        return f"prose never names the {directive} directive"
+    return None
+
+
+def guard_directive(prose: str, fallback: str, directive: str) -> str:
+    """Return ``prose``, or the deterministic report if the prose disagrees.
+
+    The prose is the only part of this report a model wrote, and it is the part
+    a reader trusts most. A narration that names a different call than the rules
+    did is worse than no narration at all, so the template stands in -- the same
+    failure posture the narrative layer takes for an API outage.
+    """
+    reason = directive_contradiction(prose, directive)
+    if reason is None:
+        return prose
+    log.warning("Risk Manager narration contradicts the %s directive (%s); "
+                "falling back to the deterministic report", directive, reason)
+    return fallback
 
 
 def _risk_observations(directive: str, agreement: str, quant: dict, sent: dict,

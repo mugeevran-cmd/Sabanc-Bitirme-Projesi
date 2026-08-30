@@ -15,8 +15,9 @@ import pytest
 
 from finagent_pulse import config
 from finagent_pulse.agents.committee import (
-    _quant_observations, _render_quant_report, _render_risk_report,
-    _render_sentiment_report, _risk_observations, _sentiment_observations)
+    _fmt_fields, _fmt_observations, _quant_observations, _render_quant_report,
+    _render_risk_report, _render_sentiment_report, _risk_observations,
+    _sentiment_observations, directive_contradiction, guard_directive)
 
 FLOOR = config.SIGNAL_TO_NOISE_MIN
 
@@ -242,3 +243,76 @@ def test_the_sentiment_report_prints_its_observations():
              observations=[{"kind": "regime_turn", "severity": "note",
                             "text": "the index and the session disagree"}])
     assert "the index and the session disagree" in _render_sentiment_report(f, [])
+
+
+# --------------------------------------------------------------------------
+# The brief the narrator is given
+# --------------------------------------------------------------------------
+# The prose is only as good as what the model is handed. These pin the two ways
+# the brief can quietly stop carrying the committee's reasoning: dropping the
+# argument, or burying an integrity flag below the routine notes.
+def test_the_brief_leaves_the_narrative_fields_to_their_own_sections():
+    """`reasons` and `observations` are the argument -- not `key: value` filler."""
+    fields = _fmt_fields({"directive": "HOLD", "conviction": 0.5,
+                          "reasons": ["a reason"], "observations": [{"text": "x"}],
+                          "principles": [{"principle": "p"}], "evidence": [{"headline": "h"}]})
+    assert "directive: HOLD" in fields
+    assert "a reason" not in fields and "principle" not in fields and "headline" not in fields
+
+
+def test_the_brief_drops_the_caller_s_skipped_fields():
+    assert "close" not in _fmt_fields({"close": 4000.0, "rsi_14": 50.0}, skip=("close",))
+
+
+def test_integrity_flags_lead_the_cross_check_section():
+    """A note printed above an integrity flag buries the thing that matters."""
+    rendered = _fmt_observations([
+        {"kind": "path_shape", "severity": "note", "text": "the path round-trips"},
+        {"kind": "forecast_scale", "severity": "integrity", "text": "the move is out of scale"}])
+    assert rendered.index("out of scale") < rendered.index("round-trips")
+
+
+def test_no_cross_checks_says_so_rather_than_going_blank():
+    """An empty section reads as missing data; the all-clear is a finding."""
+    assert "cross-check cleanly" in _fmt_observations([])
+
+
+# --------------------------------------------------------------------------
+# The narration cannot overrule the rules
+# --------------------------------------------------------------------------
+def test_prose_claiming_a_different_call_is_caught():
+    assert directive_contradiction("Recommendation: BUY at full size.", "HOLD")
+
+
+@pytest.mark.parametrize("prose", [
+    "The directive is HOLD.",
+    "Our **call: HOLD** this week.",
+    "The committee's verdict remains HOLD until the gate clears.",
+])
+def test_prose_agreeing_with_the_directive_passes(prose):
+    assert directive_contradiction(prose, "HOLD") is None
+
+
+def test_the_committee_s_own_counterfactual_is_not_a_contradiction():
+    """The real false positive: `_risk_observations` names the other directive.
+
+    "had the forecast cleared the floor, the directive would have been BUY" is
+    the report doing its job. A bare search for the word BUY flags it, which
+    would make the guard fire on exactly the reports worth reading.
+    """
+    prose = ("The call is HOLD. Nothing else was blocking it -- had the forecast "
+             "cleared the floor, the directive would have been BUY.")
+    assert directive_contradiction(prose, "HOLD") is None
+
+
+def test_prose_that_never_names_the_directive_is_caught():
+    """A justification that cannot say the word is not a justification of it."""
+    assert directive_contradiction("Markets are calm, so we wait.", "HOLD")
+
+
+def test_a_contradicting_narration_is_replaced_by_the_deterministic_report():
+    assert guard_directive("We recommend BUY.", "TEMPLATE", "HOLD") == "TEMPLATE"
+
+
+def test_a_sound_narration_is_kept():
+    assert guard_directive("The directive is HOLD.", "TEMPLATE", "HOLD") == "The directive is HOLD."

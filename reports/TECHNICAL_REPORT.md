@@ -65,6 +65,24 @@ A consequence worth stating plainly: **the system runs fully without any LLM API
 key**, falling back to a template renderer that produces the same report
 structure. Setting `ANTHROPIC_API_KEY` upgrades the prose, never the decision.
 
+The split only pays off if the prose actually carries the reasoning, so the
+narration prompt is built from the justification the rules already produced: the
+gate that fired and the numbers that cleared or failed it, the counterfactual
+directive the committee would have issued had it gone the other way, the
+principles retrieved for that decision state, and the invalidation frame. The
+rendered deterministic report is appended as an anchor, with the instruction
+that no figure absent from the brief may appear in the prose.
+
+One residual risk survives that design: the model could write fluent prose that
+justifies a *different* call from the one the rules computed — the failure mode
+where a system looks most authoritative exactly when it is wrong. The Risk
+Manager's narration is therefore checked against the computed directive before
+it is returned, and a narration that asserts another call, or never names the
+real one, is replaced by the deterministic report. The check distinguishes an
+assertion from the committee's own counterfactual, which legitimately names the
+other directive ("had the forecast cleared the floor, the directive would have
+been BUY").
+
 ---
 
 ## 3. Sentiment engine (FinBERT)
