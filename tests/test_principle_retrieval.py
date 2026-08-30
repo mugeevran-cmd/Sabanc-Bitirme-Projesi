@@ -124,3 +124,69 @@ def test_traps_are_actually_retrieved_on_a_conflict():
     got = [p["principle"] for p in retrieve_governing_principles(
         "conflicting", {"volatility_regime": "normal"}, {"contrarian_flag": None})]
     assert any("Trap" in name for name in got), got
+
+
+# --------------------------------------------------------------------------
+# How a retrieved principle is cited -- no index required
+#
+# Both defects below were visible in the committed executive report and in the
+# dashboard's Investment Committee tab: every bullet read
+# "**Margin of Safety** — Margin of Safety. The central concept ... that being..."
+# -- the name twice, and the paragraph severed mid-sentence.
+# --------------------------------------------------------------------------
+BODY = ("A sharp upward move during a structural downtrend that draws in "
+        "buyers before resuming the decline.")
+
+
+def test_the_cited_text_does_not_repeat_the_principle_name():
+    """The indexer embeds "{title}. {body}"; the caller renders the title too."""
+    from finagent_pulse.rag.hybrid import HybridRetriever
+
+    assert HybridRetriever._principle_body("Bull Trap", f"Bull Trap. {BODY}") == BODY
+
+
+def test_a_heading_only_chunk_cites_nothing_beyond_its_name():
+    from finagent_pulse.rag.hybrid import HybridRetriever
+
+    assert HybridRetriever._principle_body("Bull Trap", "Bull Trap") == ""
+
+
+def test_text_without_the_prefix_is_left_alone():
+    from finagent_pulse.rag.hybrid import HybridRetriever
+
+    assert HybridRetriever._principle_body("Bull Trap", BODY) == BODY
+    assert HybridRetriever._principle_body(None, BODY) == BODY
+
+
+def _risk_findings(principles: list[dict]) -> dict:
+    return {"directive": "HOLD", "position_pct": 0.0, "conviction": 0.5,
+            "agreement": "conflicting", "trap_warning": None,
+            "reasons": ["the two evidence streams disagree"],
+            "principles": principles,
+            "invalidation": {"horizon_days": 7, "expected_move_pct": 0.3,
+                             "noise_band_pct": 2.0}}
+
+
+def test_principles_are_cited_in_full():
+    """Every chunk is one short paragraph, so nothing is truncated.
+
+    The old renderer cut at 200 characters, which severed 11 of the 15
+    principles mid-sentence -- including every one whose conclusion is the part
+    that justifies the directive it was cited for.
+    """
+    from finagent_pulse.agents.committee import _render_risk_report
+
+    md = _render_risk_report(
+        _risk_findings([{"principle": "Bull Trap", "source": "behavioral_finance",
+                         "text": BODY}]), {}, {})
+    assert f"- **Bull Trap** — {BODY}" in md
+    assert "..." not in md
+
+
+def test_a_bodyless_principle_renders_as_just_its_name():
+    from finagent_pulse.agents.committee import _render_risk_report
+
+    md = _render_risk_report(
+        _risk_findings([{"principle": "Bull Trap", "source": "behavioral_finance",
+                         "text": ""}]), {}, {})
+    assert "- **Bull Trap**\n" in md or md.rstrip().endswith("- **Bull Trap**")

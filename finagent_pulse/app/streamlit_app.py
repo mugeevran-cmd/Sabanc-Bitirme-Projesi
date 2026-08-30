@@ -52,12 +52,6 @@ def load_csv(path: Path) -> pd.DataFrame | None:
     return pd.read_csv(path) if path.exists() else None
 
 
-@st.cache_resource(show_spinner="Loading retrieval indexes…")
-def get_retriever_cached():
-    from finagent_pulse.rag.hybrid import get_retriever
-    return get_retriever()
-
-
 @st.cache_resource(show_spinner="Loading forecaster…")
 def get_forecaster_cached():
     from finagent_pulse.models.forecaster import ForecastService
@@ -89,7 +83,7 @@ ARTIFACTS: dict[str, tuple[Path, str]] = {
     "Scored headlines": (config.HEADLINES_SCORED, "Corpus"),
     "Forecaster checkpoint": (config.MODELS_OUT / "bilstm.pt",
                               "forecast trajectory, Investment Committee"),
-    "Search indexes": (config.CHROMA_DIR, "Hybrid RAG, Investment Committee"),
+    "Search indexes": (config.CHROMA_DIR, "Investment Committee"),
 }
 
 BUILD_HINT = "Run `python -m finagent_pulse.pipeline`, or `./setup.sh` for a first-time setup."
@@ -335,40 +329,6 @@ def tab_committee(as_of: pd.Timestamp) -> None:
                        file_name=f"finagent_report_{as_of.date()}.md")
 
 
-def tab_rag() -> None:
-    st.caption("Compare the four retrieval modes on the same query. This is the "
-               "ablation study made interactive.")
-    if not require(config.CHROMA_DIR, "Hybrid RAG"):
-        return
-    retriever = get_retriever_cached()
-
-    query = st.text_input("Query",
-                          "What risks are investors reacting to right now?")
-    c1, c2, c3 = st.columns(3)
-    mode = c1.selectbox("Retrieval mode",
-                        ["hybrid_kg", "hybrid", "vector", "bm25"])
-    start = c2.date_input("From", pd.Timestamp("2023-01-01"))
-    end = c3.date_input("To", pd.Timestamp("2023-12-31"))
-
-    if st.button("Search", type="primary"):
-        docs, diag = retriever.retrieve(query, mode=mode, top_k=10,
-                                        start=str(start), end=str(end))
-        if diag["kg_neighbours"]:
-            st.info("Knowledge-graph expansion added: "
-                    + ", ".join(f"`{n}`" for n in diag["kg_neighbours"]))
-        if diag["arm_weights"]:
-            st.caption(f"Fusion arm weights: {diag['arm_weights']}")
-
-        if not docs:
-            st.warning("No documents matched.")
-            return
-        st.dataframe(pd.DataFrame([{
-            "Date": d.date, "Headline": d.headline, "Sentiment": round(d.sentiment, 3),
-            "Label": d.label, "Entities": ", ".join(d.entities),
-            "Retrieved by": d.provenance,
-        } for d in docs]), width="stretch", hide_index=True)
-
-
 def tab_evaluation() -> None:
     fm = load_json(config.MODELS_OUT / "forecast_metrics.json")
     if fm:
@@ -553,17 +513,15 @@ def main() -> None:
         st.markdown("---")
         st.caption("Academic prototype. Not investment advice.")
 
-    t1, t2, t3, t4, t5 = st.tabs(
-        ["Dashboard", "Investment Committee", "Hybrid RAG", "Evaluation", "Corpus"])
+    t1, t2, t3, t4 = st.tabs(
+        ["Dashboard", "Investment Committee", "Evaluation", "Corpus"])
     with t1:
         tab_dashboard(df, as_of)
     with t2:
         tab_committee(as_of)
     with t3:
-        tab_rag()
-    with t4:
         tab_evaluation()
-    with t5:
+    with t4:
         tab_corpus(df)
 
 

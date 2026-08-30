@@ -578,7 +578,7 @@ signal-confirmation rule.
 
 | Deliverable | Location |
 |---|---|
-| Streamlit dashboard (5 tabs) | `finagent_pulse/app/streamlit_app.py` |
+| Streamlit dashboard (4 tabs) | `finagent_pulse/app/streamlit_app.py` |
 | End-to-end pipeline | `finagent_pulse/pipeline.py` |
 | Executive investment reports | `reports/executive_report_*.md` |
 | RAG ablation | `reports/rag_ablation.{csv,json}` |

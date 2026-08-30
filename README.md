@@ -130,7 +130,7 @@ and testable. See §2.1 of the technical report.
 | **Forecasting** | 2-layer Bi-LSTM, 60-day lookback → 7-day cumulative log-return trajectory, 3-seed ensemble |
 | **Retrieval** | ChromaDB (dense) + BM25 (sparse) + 56-node entity knowledge graph, fused with weighted RRF |
 | **Agents** | LangGraph: Data Analyst → Sentiment Critic → Risk Manager |
-| **Interface** | 5-tab Streamlit dashboard |
+| **Interface** | 4-tab Streamlit dashboard |
 
 ## Headline results
 
@@ -209,7 +209,6 @@ Generated artifacts land in `data_raw/`, `data_processed/`, `models_out/`,
 |---|---|
 | **Dashboard** | Price with forecast trajectory and ±1σ band, sentiment bars, Fear & Greed gauge |
 | **Investment Committee** | Runs the three agents live and renders the executive report |
-| **Hybrid RAG** | Compare all four retrieval modes on any query — the ablation, interactive |
 | **Evaluation** | Every metric, ablation table and chart in the report |
 | **Corpus** | Coverage statistics and a per-day headline browser |
 
