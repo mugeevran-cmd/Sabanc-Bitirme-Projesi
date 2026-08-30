@@ -93,12 +93,19 @@ Stages, in order: `ingest → sentiment → features → rag → forecast → ev
 ./.venv/bin/pytest
 ```
 
-39 tests, ~10 seconds, no pipeline run required — the retriever and the language
+74 tests, ~10 seconds, no pipeline run required — the retriever and the language
 model are stubbed and the price/sentiment frames are synthetic. They pin the
 things that would otherwise fail silently: the Risk Manager's decision table,
 the leak-safety of the windowing and the train/val/test embargo, the
 point-in-time Fear & Greed definition, the two non-standard retrieval metrics,
-and the autocorrelation-aware significance test.
+the autocorrelation-aware significance test, the BM25 tokeniser on both the
+index and the query side, and that the committed reports in `reports/` still
+carry the fields the code that writes them produces.
+
+The last two are there because both failed silently once: a punctuation-splitting
+tokeniser made BM25 look 4× worse than it is on natural-language queries
+(§5.1.1), and the evaluate stage went two commits without being re-run while the
+write-up quoted a p-value that existed nowhere in the repository.
 
 ### Optional: LLM-written narratives
 
@@ -133,12 +140,12 @@ and testable. See §2.1 of the technical report.
 | R² in return space / price space | −0.020 / 0.934 |
 | Sentiment vs same-day return | r = **+0.573** (block-bootstrap p = 0.0002) |
 | Sentiment vs next-day return | r = −0.045 (p = 0.50) — **not predictive** |
-| Hybrid RAG vs sparse-only (macro nDCG@10) | 0.1847 vs 0.1478 (+25.0%, **p < 0.001**) |
-| Hybrid RAG vs dense-only (macro nDCG@10) | 0.1887 vs 0.1738 (+8.5%, p = 0.03 — **not stable across draws**) |
-| BM25 on natural-language queries | nDCG 0.0079 — an **8× collapse** |
+| `hybrid_kg` vs dense-only (macro nDCG@10) | 0.2063 vs 0.1738 (+18.7%, **p < 0.001**) |
+| `hybrid` vs sparse-only (macro nDCG@10) | 0.1984 vs 0.1922 (+3.2%, p = 0.43 — **not a difference**) |
+| BM25 on natural-language queries | nDCG 0.0345 — **1.9× below** the dense index |
 | Committee: abstained / traded | 84% / 16%; 75% hit rate on **12 trades** (9/12, p = 0.07, 95% CI [0.47, 0.91]) |
 
-Four findings are worth reading in full in the report, because they are
+Five findings are worth reading in full in the report, because they are
 negative or counter-intuitive and they shaped the design:
 
 - **Headline sentiment describes the session it belongs to and does not forecast
@@ -152,12 +159,19 @@ negative or counter-intuitive and they shaped the design:
   against a naive baseline (+3.77% vs +2.97%). The decision layer consumes
   direction and ignores magnitude, so the combined model is the right pick —
   but both numbers belong in the same sentence. See §4.3.
-- **Hybrid retrieval buys robustness against sparse retrieval, and the rest is
-  unresolved.** Beating BM25 is significant and stable (p < 0.001 across two
-  independent draws of the benchmark). Beating the dense index is not: two draws
-  of the same protocol landed at p = 0.20 and p = 0.03, on opposite sides of the
-  threshold. 136 queries cannot settle that comparison, and we report it as
-  unsettled rather than quoting the flattering draw. See §5.4.1.
+- **Hybrid retrieval beats the dense index, and does not beat BM25.** Against
+  dense-only the gain is large and unambiguous (+18.7% macro nDCG, p < 0.001).
+  Against BM25 it is nothing pooled (+3.2%, p = 0.43) — fusion *loses* on keyword
+  queries (−0.024 nDCG, p = 0.019) and *wins* on natural-language ones (+0.037,
+  p = 0.002), and the two cancel. Robustness across query styles is what fusion
+  buys; a higher peak is not. See §5.4.1.
+- **The previous version of the two rows above was wrong, and a tokenisation bug
+  is why.** The BM25 index and the query path both used `str.split()`, so
+  punctuation stayed attached to the term and every natural-language query lost
+  one of its two entity names to a trailing question mark. That understated BM25
+  by roughly 4× on semantic queries and turned "fusion beats sparse-only" into a
+  headline result it is not. See §5.1.1 — it is the most useful thing in this
+  report to read before trusting a retrieval benchmark.
 
 ## Project layout
 
