@@ -7,17 +7,21 @@ terms was always a "?"-suffixed token that matched nothing at all. That is a
 silent failure -- BM25 returns zeros, the fused retriever degrades to
 vector-only, and the ablation reads it as "BM25 collapses on semantic queries".
 
-These tests pin the tokeniser on both sides and pin the version guard that stops
-a cached index from an older tokeniser being honoured.
+These tests pin the tokeniser on both sides, and pin the version stamp that
+makes an index built by an older tokeniser rebuild itself instead of being
+honoured.
 """
 from __future__ import annotations
 
 import pickle
 
+import pandas as pd
 import pytest
 from rank_bm25 import BM25Okapi
 
-from finagent_pulse.rag.index import TOKENIZER_VERSION, load_bm25, tokenize
+from finagent_pulse import config
+from finagent_pulse.rag.index import (
+    TOKENIZER_VERSION, build_bm25_index, tokenize)
 
 HEADLINES = [
     "Fed signals rate cut as inflation cools, stocks rally",
@@ -95,26 +99,53 @@ def test_the_old_index_tokenisation_hides_terms_behind_punctuation():
 
 
 # --------------------------------------------------------------------------
-# The version guard
+# The version stamp
+#
+# Every caller loads the index through build_bm25_index, so a checkout whose
+# pickle predates a tokeniser change heals itself. A previous version kept a
+# separate strict loader on the query path, which meant the pipeline rebuilt a
+# stale index and the dashboard died on it -- one artefact, two behaviours.
 # --------------------------------------------------------------------------
-def test_a_stale_index_is_refused_not_silently_used(tmp_path):
-    """An artifacts.zip built before this fix must raise, not score zeros."""
+@pytest.fixture
+def docs() -> pd.DataFrame:
+    return pd.DataFrame({"doc_id": [f"h{i}" for i in range(len(HEADLINES))],
+                         "headline": HEADLINES})
+
+
+@pytest.fixture
+def index_path(tmp_path, monkeypatch):
     path = tmp_path / "bm25.pkl"
-    path.write_bytes(pickle.dumps({"bm25": None, "doc_ids": []}))   # no version
-    with pytest.raises(RuntimeError, match="v1-split"):
-        load_bm25(path)
+    monkeypatch.setattr(config, "BM25_PATH", path)
+    return path
 
 
-def test_a_current_index_loads(tmp_path):
-    path = tmp_path / "bm25.pkl"
-    path.write_bytes(pickle.dumps(
-        {"bm25": None, "doc_ids": ["h0"], "tokenizer": TOKENIZER_VERSION}))
-    assert load_bm25(path)["doc_ids"] == ["h0"]
+def test_an_index_from_an_older_tokeniser_is_rebuilt(index_path, docs):
+    """What an unpacked artifacts.zip looks like after a tokeniser change."""
+    index_path.write_bytes(pickle.dumps({"bm25": None, "doc_ids": []}))  # no stamp
+
+    payload = build_bm25_index(docs)
+
+    assert payload["tokenizer"] == TOKENIZER_VERSION
+    assert payload["doc_ids"] == list(docs["doc_id"])
+    # And the rebuilt index actually answers, rather than scoring everything 0.
+    assert payload["bm25"].get_scores(tokenize("inflation cools?")).max() > 0
 
 
-def test_the_error_says_how_to_rebuild(tmp_path):
-    path = tmp_path / "bm25.pkl"
-    path.write_bytes(pickle.dumps({"bm25": None, "doc_ids": [],
-                                   "tokenizer": "something-else"}))
-    with pytest.raises(RuntimeError, match=r"--only rag --force"):
-        load_bm25(path)
+def test_a_current_index_is_reused_untouched(index_path, docs):
+    marker = {"bm25": "not-rebuilt", "doc_ids": ["sentinel"],
+              "tokenizer": TOKENIZER_VERSION}
+    index_path.write_bytes(pickle.dumps(marker))
+    assert build_bm25_index(docs)["doc_ids"] == ["sentinel"]
+
+
+def test_force_rebuilds_even_a_current_index(index_path, docs):
+    index_path.write_bytes(pickle.dumps(
+        {"bm25": "not-rebuilt", "doc_ids": ["sentinel"],
+         "tokenizer": TOKENIZER_VERSION}))
+    assert build_bm25_index(docs, force=True)["doc_ids"] == list(docs["doc_id"])
+
+
+def test_a_missing_index_is_built_from_scratch(index_path, docs):
+    assert not index_path.exists()
+    payload = build_bm25_index(docs)
+    assert index_path.exists() and payload["tokenizer"] == TOKENIZER_VERSION
