@@ -93,14 +93,15 @@ Stages, in order: `ingest → sentiment → features → rag → forecast → ev
 ./.venv/bin/pytest
 ```
 
-86 tests, ~10 seconds, no pipeline run required — the retriever and the language
+114 tests, ~10 seconds, no pipeline run required — the retriever and the language
 model are stubbed and the price/sentiment frames are synthetic. They pin the
 things that would otherwise fail silently: the Risk Manager's decision table,
 the leak-safety of the windowing and the train/val/test embargo, the
 point-in-time Fear & Greed definition, the two non-standard retrieval metrics,
 the autocorrelation-aware significance test, the BM25 tokeniser on both the
-index and the query side, and that the committed reports in `reports/` still
-carry the fields the code that writes them produces.
+index and the query side, the cross-checks each agent narrates, and that the
+committed reports in `reports/` still carry the fields the code that writes
+them produces.
 
 The last two are there because both failed silently once: a punctuation-splitting
 tokeniser made BM25 look 4× worse than it is on natural-language queries
