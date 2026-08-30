@@ -37,7 +37,9 @@ _TOKEN = re.compile(r"[a-z0-9&']+")
 # Stamped into the pickled payload and checked on load. A BM25 index built by a
 # different tokeniser cannot answer queries tokenised by this one, and the
 # failure mode is silent -- every score comes back 0 and the fused retriever
-# quietly degrades to vector-only.
+# quietly degrades to vector-only. ``build_bm25_index`` rebuilds on a mismatch
+# rather than refusing, so a checkout whose index predates a tokeniser change
+# heals itself wherever the corpus is available.
 TOKENIZER_VERSION = "v2-regex"
 
 
@@ -54,26 +56,6 @@ def tokenize(text: str) -> list[str]:
     single terms.
     """
     return _TOKEN.findall(text.lower())
-
-
-def load_bm25(path=None) -> dict:
-    """Load the pickled BM25 payload, refusing one built by another tokeniser.
-
-    Raises rather than returning a stale index: a mismatch scores every document
-    0, which looks like "BM25 found nothing" instead of like a broken index.
-    """
-    path = config.BM25_PATH if path is None else path
-    with open(path, "rb") as fh:
-        payload = pickle.load(fh)
-    built_with = payload.get("tokenizer", "v1-split")
-    if built_with != TOKENIZER_VERSION:
-        raise RuntimeError(
-            f"{path} was built with tokenizer {built_with!r} but this code "
-            f"queries with {TOKENIZER_VERSION!r}; every BM25 score would "
-            "silently come back 0. Rebuild it with:\n"
-            "  python -m finagent_pulse.pipeline --only rag --force"
-        )
-    return payload
 
 
 # --------------------------------------------------------------------------
@@ -153,6 +135,13 @@ def build_vector_index(docs: pd.DataFrame, force: bool = False):
 
 
 def build_bm25_index(docs: pd.DataFrame, force: bool = False):
+    """Load the BM25 index, rebuilding it if it was not built by ``tokenize``.
+
+    Every caller goes through here, including the retriever. An earlier version
+    kept a separate strict loader for the query path, which meant the pipeline
+    healed a stale index and the dashboard died on it with a traceback -- the
+    same artefact, two behaviours, and the one users met first was the failure.
+    """
     from rank_bm25 import BM25Okapi
 
     if config.BM25_PATH.exists() and not force:

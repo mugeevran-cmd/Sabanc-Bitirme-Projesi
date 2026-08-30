@@ -68,9 +68,9 @@ class HybridRetriever:
         self.principles = client.get_collection(
             config.CHROMA_KB_COLLECTION, embedding_function=ef)
 
-        # Refuses an index built by a different tokeniser rather than scoring
-        # every document 0 -- see rag_index.load_bm25.
-        payload = rag_index.load_bm25()
+        # Rebuilds itself if the stored index predates the current tokeniser;
+        # a mismatch would otherwise score every document 0 in silence.
+        payload = rag_index.build_bm25_index(self.docs)
         self.bm25 = payload["bm25"]
         self.bm25_ids = payload["doc_ids"]
 
