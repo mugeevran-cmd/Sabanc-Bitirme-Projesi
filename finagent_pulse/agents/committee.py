@@ -120,6 +120,7 @@ def data_analyst_node(state: CommitteeState) -> dict:
         "dist_ma50_pct": float(row["dist_ma50"]) * 100,
         "anomalies": anomalies,
     }
+    findings["observations"] = _quant_observations(findings, hist)
 
     fallback = _render_quant_report(findings)
     prose = _narrate(
@@ -131,6 +132,85 @@ def data_analyst_node(state: CommitteeState) -> dict:
         fallback,
     )
     return {"quant": findings, "reports": {"data_analyst": prose}}
+
+
+def _quant_observations(f: dict, hist: pd.DataFrame) -> list[dict]:
+    """Cross-checks the individual numbers cannot make on their own.
+
+    The template used to relay each figure and stop, which left the reader to
+    notice for themselves that a forecast was larger than anything the index has
+    actually done, or that a "+0.6%" trajectory spends most of the horizon
+    somewhere else. These are the checks a human analyst runs before quoting the
+    model, computed rather than written, so they stay reproducible and testable.
+
+    Each observation is ``{"kind", "severity", "text"}``. Severity is
+    ``"integrity"`` when the numbers look wrong rather than merely unfavourable.
+    """
+    out: list[dict] = []
+    expected = f["forecast_7d_pct"] / 100.0
+    path = f["forecast_path_pct"]
+
+    # 1. Is the projected move on the scale of moves this index actually makes?
+    # Trailing 7-session returns, all strictly in the past of the decision date.
+    trailing = np.log(hist["close"]).diff(config.LSTM.horizon).tail(250).dropna()
+    if len(trailing) >= 60:
+        pct = float((trailing.abs() <= abs(expected)).mean())
+        if pct >= 0.99:
+            out.append({
+                "kind": "forecast_scale", "severity": "integrity",
+                "text": (f"the projected {f['forecast_7d_pct']:+.2f}% is larger than "
+                         f"{pct:.0%} of the 7-session moves this index actually made "
+                         "in the trailing year. A forecast outside the realised "
+                         "distribution is usually a data or scaling fault rather "
+                         "than a signal, and should be reconciled before it is acted on"),
+            })
+        elif pct >= 0.90:
+            out.append({
+                "kind": "forecast_scale", "severity": "note",
+                "text": (f"the projected move sits at the {pct:.0%} percentile of "
+                         "trailing 7-session moves — large, but within what the "
+                         "index does"),
+            })
+
+    # 2. Does the trajectory hold its move, or does it round-trip inside the week?
+    peak = max(path, key=abs)
+    if abs(peak) > 1e-9 and abs(path[-1]) < 0.5 * abs(peak):
+        out.append({
+            "kind": "path_shape", "severity": "note",
+            "text": (f"the trajectory is not monotone: it reaches {peak:+.2f}% at "
+                     f"t+{path.index(peak) + 1} and ends the week at "
+                     f"{path[-1]:+.2f}%, so most of the projected move is given "
+                     "back inside the horizon"),
+        })
+
+    # 3. Momentum and the forecast can point the same way and still disagree
+    # about what to do -- buying an overbought tape is a different trade from
+    # buying a base.
+    if f["rsi_14"] >= 70 and expected > 0:
+        out.append({
+            "kind": "momentum_conflict", "severity": "note",
+            "text": (f"the model projects further upside into an RSI of "
+                     f"{f['rsi_14']:.0f}: this is a request to buy strength, not "
+                     "a reversal setup"),
+        })
+    elif f["rsi_14"] <= 30 and expected < 0:
+        out.append({
+            "kind": "momentum_conflict", "severity": "note",
+            "text": (f"the model projects further downside into an RSI of "
+                     f"{f['rsi_14']:.0f}: this is a request to sell weakness, not "
+                     "a reversal setup"),
+        })
+
+    # 4. An index trading far from its own 50-day average is either a genuine
+    # dislocation or a mismatch between two series that should be on one scale.
+    if abs(f["dist_ma50_pct"]) >= 20.0:
+        out.append({
+            "kind": "ma_dislocation", "severity": "integrity",
+            "text": (f"price sits {f['dist_ma50_pct']:+.1f}% from its 50-day average. "
+                     "For a broad index that is far outside normal dispersion and "
+                     "points at stale or mis-scaled inputs rather than at a market move"),
+        })
+    return out
 
 
 def _render_quant_report(f: dict) -> str:
@@ -163,6 +243,20 @@ def _render_quant_report(f: dict) -> str:
     else:
         lines.append("**No structural anomalies detected** — price action is within "
                      "its normal trailing distribution.")
+
+    obs = f.get("observations", [])
+    integrity = [o for o in obs if o["severity"] == "integrity"]
+    notes = [o for o in obs if o["severity"] != "integrity"]
+    if integrity:
+        lines += ["", "> **Data integrity — read the forecast with suspicion.** "
+                  + " Also, ".join(o["text"] for o in integrity) + "."]
+    if notes:
+        lines += ["", "**Reading the forecast:** "
+                  + "; ".join(o["text"] for o in notes) + "."]
+    if not obs:
+        lines += ["", "The forecast is internally consistent: its magnitude is "
+                  "ordinary against the trailing distribution, the trajectory holds "
+                  "its move across the horizon, and momentum does not contradict it."]
     return "\n".join(lines)
 
 
@@ -244,6 +338,7 @@ def sentiment_critic_node(state: CommitteeState) -> dict:
         "retrieval": diag,
         "evidence": [d.as_dict() for d in docs],
     }
+    findings["observations"] = _sentiment_observations(findings)
 
     evidence_block = "\n".join(
         f"- [{d.date}] ({d.label}, {d.sentiment:+.2f}) {d.headline}" for d in docs)
@@ -257,6 +352,77 @@ def sentiment_critic_node(state: CommitteeState) -> dict:
         fallback,
     )
     return {"sentiment": findings, "reports": {"sentiment_critic": prose}}
+
+
+def _sentiment_observations(f: dict) -> list[dict]:
+    """Where the sentiment channel disagrees with itself.
+
+    The template reported four sentiment numbers side by side and left their
+    disagreements unremarked -- most visibly a Fear & Greed reading in the greed
+    band on a day whose own headlines are net negative, which happens whenever
+    the tape turns, because the index is a 20-day smoothed percentile and today's
+    score is not.
+    """
+    out: list[dict] = []
+    now, fg = f["sentiment_now"], f["fear_greed_index"]
+
+    # 1. A slow variable and a fast one, reported together, will disagree at
+    # exactly the moments that matter.
+    if fg >= 65 and now < 0:
+        out.append({
+            "kind": "regime_turn", "severity": "note",
+            "text": (f"the Fear & Greed index reads {fg:.0f}/100 — the greed band — "
+                     f"while today's headlines score {now:+.3f}, net negative. The "
+                     "index is a 20-day smoothed percentile and today is not, so "
+                     "this is what the start of a turn looks like rather than a "
+                     "contradiction: positioning is still complacent, the news flow "
+                     "has already rolled over"),
+        })
+    elif fg <= 35 and now > 0:
+        out.append({
+            "kind": "regime_turn", "severity": "note",
+            "text": (f"the Fear & Greed index reads {fg:.0f}/100 — the fear band — "
+                     f"while today's headlines score {now:+.3f}, net positive. "
+                     "Sentiment is improving faster than the 20-day percentile can "
+                     "register it"),
+        })
+
+    # 2. The retrieved evidence is the day's news as the RAG stack sees it. If
+    # its mean disagrees in sign with the aggregate, the two views of "today's
+    # news" are not the same view, and the quoted headlines below will read as
+    # if they belong to a different session.
+    ev = [d["sentiment"] for d in f.get("evidence", [])]
+    if ev:
+        ev_mean = sum(ev) / len(ev)
+        if abs(now) >= 0.05 and abs(ev_mean) >= 0.05 and (ev_mean > 0) != (now > 0):
+            out.append({
+                "kind": "evidence_divergence", "severity": "note",
+                "text": (f"the {len(ev)} headlines retrieved for context average "
+                         f"{ev_mean:+.3f} against the session's {now:+.3f} — the "
+                         "retrieved window spans 14 days, so it is carrying the "
+                         "prior mood rather than today's"),
+            })
+
+    # 3. A mean over very few headlines is not a measurement.
+    if f["headline_count"] <= 5:
+        out.append({
+            "kind": "thin_coverage", "severity": "integrity",
+            "text": (f"the session's sentiment rests on {f['headline_count']} "
+                     "headlines. That is too thin to average, and the reading "
+                     "should not carry weight against the price channel"),
+        })
+
+    # 4. Direction of travel, which the raw levels do not show.
+    shift = f["sentiment_shift"]
+    if abs(shift) >= 0.10:
+        out.append({
+            "kind": "momentum", "severity": "note",
+            "text": (f"the 5-day mean has moved {shift:+.3f} against its 20-day "
+                     f"baseline, so the news environment is "
+                     f"{'improving' if shift > 0 else 'deteriorating'} faster than "
+                     "the level alone suggests"),
+        })
+    return out
 
 
 def _render_sentiment_report(f: dict, docs) -> str:
@@ -292,6 +458,20 @@ def _render_sentiment_report(f: dict, docs) -> str:
               for d in docs[:5]]
     if f["contrarian_flag"]:
         lines += ["", f"> **Contrarian note.** {f['contrarian_flag']}"]
+
+    obs = f.get("observations", [])
+    integrity = [o for o in obs if o["severity"] == "integrity"]
+    notes = [o for o in obs if o["severity"] != "integrity"]
+    if integrity:
+        lines += ["", "> **Read this channel with suspicion.** "
+                  + " Also, ".join(o["text"] for o in integrity) + "."]
+    if notes:
+        lines += ["", "**What the numbers disagree about:** "
+                  + "; ".join(o["text"] for o in notes) + "."]
+    if not obs:
+        lines += ["", "The sentiment channel is internally consistent: the "
+                  "smoothed index, the session score and the retrieved evidence "
+                  "all point the same way."]
     return "\n".join(lines)
 
 
@@ -407,6 +587,7 @@ def risk_manager_node(state: CommitteeState) -> dict:
     if sent["contrarian_flag"] and directive != "HOLD":
         reasons.append("one-sided news coverage argues for restraint on size")
 
+    observations = _risk_observations(directive, agreement, quant, sent, position_pct)
     principles = retrieve_governing_principles(agreement, quant, sent)
 
     findings = {
@@ -418,6 +599,7 @@ def risk_manager_node(state: CommitteeState) -> dict:
         "tradable": tradable,
         "trap_warning": trap,
         "reasons": reasons,
+        "observations": observations,
         "principles": principles,
         "invalidation": {
             "horizon_days": config.LSTM.horizon,
@@ -441,6 +623,73 @@ def risk_manager_node(state: CommitteeState) -> dict:
         fallback,
     )
     return {"risk": findings, "reports": {"risk_manager": prose}}
+
+
+def _risk_observations(directive: str, agreement: str, quant: dict, sent: dict,
+                       position_pct: float) -> list[dict]:
+    """What the directive rests on, and how close it came to being another one.
+
+    "HOLD" on its own tells the reader nothing about whether the call was
+    marginal or nowhere near. These quantify the gap, and carry any integrity
+    flag the upstream agents raised down into the final directive -- the Risk
+    Manager sees both analyses, so it is the right place to say that a directive
+    rests on numbers the Data Analyst already doubted.
+    """
+    out: list[dict] = []
+    snr, floor = quant["signal_to_noise"], config.SIGNAL_TO_NOISE_MIN
+    exp_return = quant["forecast_7d_pct"] / 100.0
+
+    # An integrity problem upstream outranks everything else here.
+    upstream = [o for src in (quant, sent) for o in src.get("observations", [])
+                if o["severity"] == "integrity"]
+    if upstream:
+        out.append({
+            "kind": "suspect_inputs", "severity": "integrity",
+            "text": (f"{'this directive rests on' if directive != 'HOLD' else 'the abstention is safe, but'} "
+                     f"{len(upstream)} input{'s' if len(upstream) > 1 else ''} the "
+                     "committee has already flagged as suspect. Reconcile the data "
+                     "before acting on any call from this session"),
+        })
+
+    # How marginal was it?
+    if directive == "HOLD" and snr < floor:
+        if snr > 1e-9:
+            needed = abs(exp_return) * floor / snr
+            out.append({
+                "kind": "distance_to_gate", "severity": "note",
+                "text": (f"this was not a near miss: the forecast would have to be "
+                         f"{floor / snr:.1f}x larger — about {needed:.2%} over the "
+                         f"week instead of {abs(exp_return):.2%} — to clear the "
+                         f"{floor:.2f} conviction floor"
+                         if floor / snr >= 1.5 else
+                         f"this was close: a forecast {floor / snr:.2f}x larger, "
+                         f"about {needed:.2%} instead of {abs(exp_return):.2%}, "
+                         "would have cleared the conviction floor"),
+            })
+        # What the committee would have said had the gate passed.
+        if agreement != "conflicting" and exp_return != 0:
+            would = "BUY" if exp_return > 0 else "SELL"
+            out.append({
+                "kind": "counterfactual", "severity": "note",
+                "text": (f"nothing else was blocking it — had the forecast cleared "
+                         f"the floor, the directive would have been {would}"),
+            })
+    elif directive == "HOLD" and agreement == "conflicting":
+        out.append({
+            "kind": "counterfactual", "severity": "note",
+            "text": (f"the conviction gate was cleared at {snr:.2f} against a "
+                     f"{floor:.2f} floor, so this is a HOLD on disagreement alone: "
+                     "the forecast was strong enough to act on and the sentiment "
+                     "channel refused to confirm it"),
+        })
+    elif directive != "HOLD":
+        out.append({
+            "kind": "sizing", "severity": "note",
+            "text": (f"the position is {position_pct:.1f}% of standard rather than "
+                     "full size, because conviction scales with how far the signal "
+                     f"clears the floor and this one clears it {snr / floor:.2f}x"),
+        })
+    return out
 
 
 def principle_queries(agreement: str, quant: dict, sent: dict) -> list[str]:
@@ -519,6 +768,16 @@ def _render_risk_report(f: dict, quant: dict, sent: dict) -> str:
     ]
     if f["trap_warning"]:
         lines += ["", f"> {f['trap_warning']}"]
+
+    obs = f.get("observations", [])
+    integrity = [o for o in obs if o["severity"] == "integrity"]
+    notes = [o for o in obs if o["severity"] != "integrity"]
+    if integrity:
+        lines += ["", "> **Inputs are suspect.** "
+                  + " Also, ".join(o["text"] for o in integrity) + "."]
+    if notes:
+        lines += ["", "**How close this was to another call:** "
+                  + "; ".join(o["text"] for o in notes) + "."]
     lines += ["", "**Governing principles consulted:**"]
     for p in f["principles"]:
         # Cited in full. Every chunk in the knowledge base is one short
