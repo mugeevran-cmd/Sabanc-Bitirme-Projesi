@@ -520,6 +520,65 @@ signal-confirmation rule.
 - The 12 trap flags cluster visibly at local tops and bottoms in figure 5 —
   the qualitative behaviour the mechanism was designed to produce.
 
+### 6.4 Walk-forward: does any of this hold outside the bull run?
+
+Sections 6.1–6.3 describe one 11-month test window in a rising market, which
+left two questions the split could not answer: is the absence of SELL
+directives a property of the decision rule or of the period, and does the
+forecaster work anywhere else. `finagent_pulse/walkforward.py` refits the model
+on four chronological splits so each test window lands on a different regime,
+and scores each fold with the model that never saw it.
+
+| Fold | Test window | Dir. acc | "Always up" | Edge | Skill vs naive | BUY / **SELL** / HOLD |
+|---|---|---|---|---|---|---|
+| covid_2020 | 2020-01 → 2020-12 | 0.605 | 0.683 | **−0.073** | +0.3% | 30 / **0** / 52 |
+| bull_2021 | 2021-01 → 2021-12 | 0.671 | 0.683 | +0.012 | +5.9% | 61 / **0** / 21 |
+| **bear_2022** | 2022-01 → 2022-12 | **0.446** | 0.463 | +0.012 | **−16.3%** | 56 / **0** / 26 |
+| bull_2023 | 2023-04 → 2024-02 | 0.677 | 0.680 | **+0.000** | +3.9% | 34 / **0** / 41 |
+
+Three findings, in order of how much they matter.
+
+**The forecaster has no directional edge over a constant "up".** The "Always up"
+column is the accuracy of predicting a rise every single week. On the shipped
+split the model matches it *exactly* — 0.680 against 0.680. On the two other
+bull folds it is ahead by 1.2 points, and in 2020 it is 7.3 points **behind**.
+The 73.5% headline in §4.3 is close to the rate at which the S&P 500 rose over
+7 days in that window, not a measure of what the model learned.
+
+**Zero SELL directives in every regime, including a −20% year.** This settles
+limitation 5: it is a property of the rule, not of the test period. The
+mechanism is upstream of the rule:
+
+| Fold | Forecasts below zero | Mean forecast | Mean realised | Bias |
+|---|---|---|---|---|
+| covid_2020 | 12.2% | +0.40% | +0.78% | −0.38 pp |
+| bull_2021 | 3.7% | +0.74% | +0.65% | +0.09 pp |
+| **bear_2022** | **1.2%** | **+1.92%** | **−0.55%** | **+2.47 pp** |
+| bull_2023 | 0.0% | +0.36% | +0.61% | −0.24 pp |
+
+In the bear market the model called a decline on **1 of 82 decision days** and
+averaged a +1.92% forecast while the index averaged −0.55% over the same
+horizons. In the shipped window it never once forecast a fall. The direction
+rule takes the sign of the forecast, so a model that does not produce negative
+forecasts cannot produce SELL directives, whatever the market does. The model
+has learned the unconditional drift.
+
+**Outside a rising market the forecaster is worse than doing nothing.** In 2022
+directional accuracy is 0.446 and skill against the naive persistence baseline
+is **−16.3%** — substantially worse than predicting zero return every week. The
+positive skill figures in §4.3 and §6.3 are bull-market figures.
+
+The strategy lost less than the index in 2022 (−0.211% against −0.550% per
+decision), but not by taking the short side: it was flat on 32% of days and
+long on the rest. Being long less often in a falling market is not a hedge.
+
+**What this does not say.** The four folds use different training windows, so
+they are not four measurements of one model; the 2020 fold in particular trains
+on only ~15 months. And directional accuracy on 75–82 decision days carries the
+same power problem as §5.4.1. The finding that survives all of that is the
+structural one: the sign of the forecast is almost never negative, and that is
+visible in every fold.
+
 ---
 
 ## 7. Deliverables
@@ -548,12 +607,18 @@ signal-confirmation rule.
    reasonable proxy but is not an editorial judgement, and it structurally
    favours retrievers that key on entity terms.
 4. **No transaction costs, slippage or borrowing costs** in the backtest.
-5. **The short side is untested** — zero SELL directives were issued.
-6. **One market regime.** The test period is a single 11-month bull run;
-   ~223 windows and 75 committee decisions is a small sample. Worse for the
-   decision layer specifically: overlapping 7-session horizons reduce the 12
-   trades to **5 independent episodes** (§6.3), so the traded hit rate has no
-   statistical power at all.
+5. **The short side does not exist.** Zero SELL directives, in all four
+   regimes tested (§6.4), because the forecaster almost never produces a
+   negative 7-day forecast — once in 82 decision days during the 2022 bear
+   market, and never in the shipped window. This is a property of the model,
+   not of the test period.
+6. **The headline metrics are bull-market metrics** (§6.4). Refitted on a
+   2022 test window the model scores 0.446 directional accuracy and −16.3%
+   skill against the naive baseline; its directional accuracy never
+   meaningfully exceeds a constant "up" call in any regime, and on the shipped
+   split it equals it to three decimals. Separately, overlapping 7-session
+   horizons reduce the 12 trades in §6.3 to **5 independent episodes**, so the
+   traded hit rate has no statistical power either.
 7. **Headline sentiment is not predictive** (§3.1). This bounds what any
    news-driven component of the system can contribute.
 8. **136 queries is too few to resolve the fused-vs-dense comparison**

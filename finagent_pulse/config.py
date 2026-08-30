@@ -71,6 +71,10 @@ class LSTMConfig:
     # Chronological, non-shuffled splits. No future data ever reaches training.
     train_end: str = "2022-06-30"
     val_end: str = "2023-03-31"
+    # Upper bound on the test window. None means "everything after val_end",
+    # which is what the shipped split does; walk-forward folds set it so each
+    # fold is scored on its own regime rather than on everything that follows.
+    test_end: str | None = None
     feature_columns: list[str] = field(default_factory=lambda: [
         "log_return", "log_return_5d", "volatility_20d", "rsi_14",
         "macd_hist", "volume_z", "range_pct", "dist_ma50",

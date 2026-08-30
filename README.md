@@ -129,6 +129,9 @@ and testable. See §2.1 of the technical report.
 | Result | Value |
 |---|---|
 | Directional accuracy @ 7 days (held-out test) | **73.5%** (price-only: 67.7%) |
+| Same, against a constant "up" call | **+0.000** on the shipped split — no directional edge |
+| Refitted and tested on the 2022 bear market | 44.6% accuracy, **−16.3%** skill vs naive |
+| SELL directives issued, across four regimes | **0** |
 | Skill vs naive persistence (RMSE) | +2.97% — **below** price-only's +3.77% |
 | R² in return space / price space | −0.020 / 0.934 |
 | Sentiment vs same-day return | r = **+0.573** (block-bootstrap p = 0.0002) |

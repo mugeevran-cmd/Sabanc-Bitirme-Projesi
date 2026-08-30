@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -115,6 +116,8 @@ def split_windows(origins: pd.Series, cfg: config.LSTMConfig):
     train = origins <= (train_end - embargo)
     val = (origins > train_end) & (origins <= val_end - embargo)
     test = origins > val_end
+    if cfg.test_end is not None:
+        test &= origins <= pd.Timestamp(cfg.test_end)
     return train.to_numpy(), val.to_numpy(), test.to_numpy()
 
 
@@ -159,12 +162,31 @@ def evaluate(y_true: np.ndarray, y_pred: np.ndarray, origin_close: np.ndarray) -
 # --------------------------------------------------------------------------
 # Training
 # --------------------------------------------------------------------------
+def checkpoint_paths(ckpt_path=None):
+    """Return ``(checkpoint, scaler, metrics, predictions)`` for a run.
+
+    ``None`` means the shipped set. All four move together: parameterising only
+    the checkpoint would leave a walk-forward fold overwriting the shipped
+    model's metrics and test predictions, which is exactly what happened the
+    first time this was written.
+    """
+    if ckpt_path is None:
+        return CKPT, SCALER_PATH, METRICS_PATH, PREDICTIONS_PATH
+    ckpt_path = Path(ckpt_path)
+    stem = ckpt_path.stem
+    return (ckpt_path,
+            ckpt_path.with_name(f"{stem}_scaler.npz"),
+            ckpt_path.with_name(f"{stem}_metrics.json"),
+            ckpt_path.with_name(f"{stem}_predictions.parquet"))
+
+
 def train(df: pd.DataFrame | None = None,
           feature_cols: list[str] | None = None,
           cfg: config.LSTMConfig = config.LSTM,
           save: bool = True,
           tag: str = "full",
-          seeds: tuple[int, ...] = (42, 1337, 2024)) -> dict:
+          seeds: tuple[int, ...] = (42, 1337, 2024),
+          ckpt_path=None) -> dict:
     """Train a seed-ensembled Bi-LSTM and report validation / test metrics.
 
     Several independently seeded members are averaged: a single LSTM on ~1k
@@ -262,18 +284,19 @@ def train(df: pd.DataFrame | None = None,
     }
 
     if save:
+        ckpt_file, scaler_file, metrics_file, predictions_file = checkpoint_paths(ckpt_path)
         torch.save({"members": members,
                     "features": feature_cols,
                     "config": asdict(cfg),
-                    "y_sigma": y_sigma}, CKPT)
-        np.savez(SCALER_PATH, mu=mu, sigma=sigma, y_sigma=y_sigma)
-        METRICS_PATH.write_text(json.dumps(metrics, indent=2))
+                    "y_sigma": y_sigma}, ckpt_file)
+        np.savez(scaler_file, mu=mu, sigma=sigma, y_sigma=y_sigma)
+        metrics_file.write_text(json.dumps(metrics, indent=2))
         pd.DataFrame({
             "date": origins[m_te].to_numpy(),
             "close": origin_close[m_te],
             **{f"true_h{i+1}": y[m_te][:, i] for i in range(cfg.horizon)},
             **{f"pred_h{i+1}": pred_te[:, i] for i in range(cfg.horizon)},
-        }).to_parquet(PREDICTIONS_PATH, index=False)
+        }).to_parquet(predictions_file, index=False)
 
     return metrics
 
@@ -284,8 +307,9 @@ def train(df: pd.DataFrame | None = None,
 class ForecastService:
     """Loads the trained checkpoint and produces a 7-day trajectory on demand."""
 
-    def __init__(self) -> None:
-        ckpt = torch.load(CKPT, map_location="cpu", weights_only=False)
+    def __init__(self, ckpt_path=None) -> None:
+        ckpt_file, scaler_file, _, _ = checkpoint_paths(ckpt_path)
+        ckpt = torch.load(ckpt_file, map_location="cpu", weights_only=False)
         self.features: list[str] = ckpt["features"]
         self.cfg = config.LSTMConfig(**{
             k: v for k, v in ckpt["config"].items()
@@ -301,7 +325,7 @@ class ForecastService:
             m.eval()
             self.models.append(m)
 
-        stats = np.load(SCALER_PATH)
+        stats = np.load(scaler_file)
         self.mu, self.sigma = stats["mu"], stats["sigma"]
 
     @torch.no_grad()

@@ -212,17 +212,26 @@ def calibrate_decision_thresholds(percentile: float = 0.80,
 # --------------------------------------------------------------------------
 # 3. Committee backtest
 # --------------------------------------------------------------------------
-def committee_backtest(step: int = 3, save: bool = True) -> pd.DataFrame:
-    """Run the full agent committee across the test period.
+def committee_backtest(step: int = 3, save: bool = True,
+                       start=None, end=None, path=None) -> pd.DataFrame:
+    """Run the full agent committee across a test period.
 
     Every ``step`` sessions the committee issues a directive, which is scored
     against the realised forward 7-day return. This measures the decision
     layer, not just the forecaster.
+
+    ``start`` and ``end`` bound the window; they default to the shipped split's
+    test period. Walk-forward evaluation passes each fold's own bounds so a
+    fold is never scored on data its model trained on.
     """
     from finagent_pulse.agents.committee import run_committee
 
     df = merge_features()
-    test = df[df["date"] > pd.Timestamp(config.LSTM.val_end)].reset_index(drop=True)
+    start = pd.Timestamp(start) if start is not None else pd.Timestamp(config.LSTM.val_end)
+    test = df[df["date"] > start]
+    if end is not None:
+        test = test[test["date"] <= pd.Timestamp(end)]
+    test = test.reset_index(drop=True)
     # Leave the horizon at the end so every decision has a realised outcome.
     decision_rows = test.iloc[:-config.LSTM.horizon:step]
     log.info("Backtesting %d committee decisions", len(decision_rows))
@@ -258,7 +267,7 @@ def committee_backtest(step: int = 3, save: bool = True) -> pd.DataFrame:
     bt["strategy_return_pct"] = side * bt["realised_7d_pct"] * (bt["position_pct"] / 100)
 
     if save:
-        bt.to_csv(BACKTEST_PATH, index=False)
+        bt.to_csv(path or BACKTEST_PATH, index=False)
     return bt
 
 

@@ -538,6 +538,17 @@ def _forecast_service() -> ForecastService:
     return _FORECASTER
 
 
+def set_forecast_service(service: ForecastService | None) -> None:
+    """Point the committee at a specific model.
+
+    Walk-forward evaluation trains one model per fold and has to score each fold
+    with its own; without this the committee would keep using the shipped
+    checkpoint, which has seen some of those test periods in training.
+    """
+    global _FORECASTER
+    _FORECASTER = service
+
+
 def build_graph():
     from langgraph.graph import END, START, StateGraph
 
