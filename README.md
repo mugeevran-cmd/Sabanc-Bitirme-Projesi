@@ -93,7 +93,7 @@ Stages, in order: `ingest → sentiment → features → rag → forecast → ev
 ./.venv/bin/pytest
 ```
 
-74 tests, ~10 seconds, no pipeline run required — the retriever and the language
+86 tests, ~10 seconds, no pipeline run required — the retriever and the language
 model are stubbed and the price/sentiment frames are synthetic. They pin the
 things that would otherwise fail silently: the Risk Manager's decision table,
 the leak-safety of the windowing and the train/val/test embargo, the
