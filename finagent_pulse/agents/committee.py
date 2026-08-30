@@ -12,6 +12,7 @@ the quantitative model and the news sentiment point in opposite directions.
 from __future__ import annotations
 
 import logging
+import pathlib
 import re
 from typing import Annotated, Any, TypedDict
 
@@ -42,6 +43,9 @@ class CommitteeState(TypedDict, total=False):
     sentiment: Annotated[dict, _merge]
     risk: Annotated[dict, _merge]
     reports: Annotated[dict, _merge]
+    # Narration routed through files instead of an API. See ``_narrate``.
+    brief_dir: str | None
+    narration_dir: str | None
 
 
 # --------------------------------------------------------------------------
@@ -107,7 +111,46 @@ _ANCHOR = (
 )
 
 
-def _narrate(state: CommitteeState, system: str, prompt: str, fallback: str) -> str:
+def _write_brief(directory: str, agent: str, system: str, prompt: str) -> None:
+    """Write exactly what a model would be sent, for narration done elsewhere.
+
+    The brief is the whole interface to the narrative layer: everything the
+    prose is allowed to contain is in it. Writing it out means the narration can
+    be produced by the Anthropic API, by another provider, or by a person in an
+    assistant session, without any of them needing to run the pipeline.
+    """
+    out = pathlib.Path(directory)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{agent}.brief.md").write_text(
+        f"<!-- FinAgent-Pulse narration brief for the {agent}. Write the prose "
+        f"this asks for and save it as {agent}.md in the narration directory. -->\n\n"
+        f"## System prompt\n{system}\n\n{prompt}\n")
+
+
+def _read_narration(directory: str, agent: str, fallback: str) -> str:
+    """Read prose written against an exported brief; template if absent."""
+    path = pathlib.Path(directory) / f"{agent}.md"
+    if not path.exists():
+        log.warning("no narration at %s; using the deterministic report", path)
+        return fallback
+    text = path.read_text().strip()
+    if not text:
+        log.warning("narration at %s is empty; using the deterministic report", path)
+        return fallback
+    return text
+
+
+def narration_mode(state: CommitteeState | dict) -> str:
+    """How the prose in this state was produced -- for the report footer."""
+    if not state.get("narrative", True):
+        return "template"
+    if state.get("narration_dir"):
+        return "assisted"
+    return get_writer().mode
+
+
+def _narrate(state: CommitteeState, agent: str, system: str, prompt: str,
+             fallback: str) -> str:
     """Write agent prose, unless the caller asked for findings only.
 
     The backtest runs the committee once per decision and throws every word of
@@ -124,7 +167,12 @@ def _narrate(state: CommitteeState, system: str, prompt: str, fallback: str) -> 
     """
     if not state.get("narrative", True):
         return fallback
-    return get_writer().write(system, f"{prompt}\n\n{_ANCHOR}{fallback}", fallback)
+    full = f"{prompt}\n\n{_ANCHOR}{fallback}"
+    if state.get("brief_dir"):
+        _write_brief(state["brief_dir"], agent, system, full)
+    if state.get("narration_dir"):
+        return _read_narration(state["narration_dir"], agent, fallback)
+    return get_writer().write(system, full, fallback)
 
 
 # --------------------------------------------------------------------------
@@ -214,6 +262,7 @@ def data_analyst_node(state: CommitteeState) -> dict:
     fallback = _render_quant_report(findings)
     prose = _narrate(
         state,
+        "data_analyst",
         DATA_ANALYST_SYSTEM,
         _brief(
             ("What to write", QUANT_TASK),
@@ -457,6 +506,7 @@ def sentiment_critic_node(state: CommitteeState) -> dict:
     fallback = _render_sentiment_report(findings, docs)
     prose = _narrate(
         state,
+        "sentiment_critic",
         SENTIMENT_CRITIC_SYSTEM,
         _brief(
             ("What to write", SENTIMENT_TASK),
@@ -756,6 +806,7 @@ def risk_manager_node(state: CommitteeState) -> dict:
     fallback = _render_risk_report(findings, quant, sent)
     prose = _narrate(
         state,
+        "risk_manager",
         RISK_MANAGER_SYSTEM,
         _brief(
             ("What to write", RISK_TASK),
@@ -1036,20 +1087,27 @@ _GRAPH = None
 
 
 def run_committee(features: pd.DataFrame, as_of: str | pd.Timestamp,
-                  narrative: bool = True) -> dict:
+                  narrative: bool = True, brief_dir: str | None = None,
+                  narration_dir: str | None = None) -> dict:
     """Run the full committee for one decision date and return its state.
 
     ``narrative=False`` skips the language model entirely and renders the
     deterministic templates instead -- what the backtest wants, since it reads
     only the findings. Directives are identical either way; the model never
     touches them.
+
+    ``brief_dir`` writes each agent's narration brief out; ``narration_dir``
+    reads the prose back from files rather than calling a model. Together they
+    let the narration be produced anywhere -- another provider, or an assistant
+    session -- while the findings and the directive stay in the pipeline.
     """
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
     as_of = pd.Timestamp(as_of)
     return _GRAPH.invoke({"as_of": str(as_of.date()), "features": features,
-                          "narrative": narrative})
+                          "narrative": narrative, "brief_dir": brief_dir,
+                          "narration_dir": narration_dir})
 
 
 def executive_report(state: dict) -> str:
@@ -1079,9 +1137,9 @@ def executive_report(state: dict) -> str:
         "---",
         "",
         f"*Generated by FinAgent-Pulse. Narrative mode: "
-        f"`{get_writer().mode}`. Directives are computed deterministically from "
-        "model output and are reproducible. This is an academic prototype, not "
-        "investment advice.*",
+        f"`{narration_mode(state)}`. Directives are computed deterministically "
+        "from model output and are reproducible. This is an academic prototype, "
+        "not investment advice.*",
     ]
     return "\n".join(header + ["\n\n".join(body)] + footer)
 

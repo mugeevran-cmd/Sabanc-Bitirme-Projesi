@@ -15,7 +15,8 @@ import pytest
 
 from finagent_pulse import config
 from finagent_pulse.agents.committee import (
-    _fmt_evidence, _fmt_fields, _fmt_observations, _quant_observations, _render_quant_report,
+    _fmt_evidence, _fmt_fields, _fmt_observations, _quant_observations,
+    _read_narration, _render_quant_report, _write_brief, narration_mode,
     _render_risk_report, _render_sentiment_report, _risk_observations,
     _sentiment_observations, directive_contradiction, guard_directive)
 
@@ -328,3 +329,37 @@ def test_the_brief_carries_the_headlines_with_the_arms_that_found_them():
 
 def test_an_empty_retrieval_is_named_rather_than_left_blank():
     assert "nothing retrieved" in _fmt_evidence([])
+
+
+# --------------------------------------------------------------------------
+# Narration routed through files
+# --------------------------------------------------------------------------
+# The brief is the whole interface to the narrative layer, so it has to survive
+# the round trip: everything a writer needs goes out, and prose written against
+# it comes back. Absent or empty prose must degrade to the template rather than
+# leave a hole in the report where an agent's section should be.
+def test_the_exported_brief_carries_the_system_prompt_and_the_task(tmp_path):
+    _write_brief(str(tmp_path), "risk_manager", "You are the risk manager.",
+                 "## What to write\nJustify the directive.")
+    written = (tmp_path / "risk_manager.brief.md").read_text()
+    assert "You are the risk manager." in written
+    assert "Justify the directive." in written
+    assert "risk_manager.md" in written, "the brief must say where the prose goes"
+
+
+def test_prose_written_against_a_brief_is_read_back(tmp_path):
+    (tmp_path / "risk_manager.md").write_text("The directive is HOLD.\n")
+    assert _read_narration(str(tmp_path), "risk_manager", "TEMPLATE") == "The directive is HOLD."
+
+
+@pytest.mark.parametrize("contents", [None, "", "   \n"])
+def test_missing_or_empty_prose_falls_back_to_the_template(tmp_path, contents):
+    if contents is not None:
+        (tmp_path / "risk_manager.md").write_text(contents)
+    assert _read_narration(str(tmp_path), "risk_manager", "TEMPLATE") == "TEMPLATE"
+
+
+def test_the_footer_names_how_the_prose_was_produced():
+    """A reader has to be able to tell an unattended run from an assisted one."""
+    assert narration_mode({"narrative": False}) == "template"
+    assert narration_mode({"narrative": True, "narration_dir": "reports/narration"}) == "assisted"

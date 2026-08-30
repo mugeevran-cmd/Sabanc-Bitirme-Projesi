@@ -73,6 +73,14 @@ principles retrieved for that decision state, and the invalidation frame. The
 rendered deterministic report is appended as an anchor, with the instruction
 that no figure absent from the brief may appear in the prose.
 
+Because the brief is the entire interface to the narrative layer, it can be
+exported (`--export-briefs`) and the prose written anywhere -- by a different
+provider, or by a person working with an assistant -- then read back
+(`--narration-dir`) without the findings or the directive leaving the pipeline.
+Reports produced that way are labelled `assisted` in the footer rather than
+`llm`: the distinction between an unattended run and a supervised one belongs to
+the reader, not to us.
+
 One residual risk survives that design: the model could write fluent prose that
 justifies a *different* call from the one the rules computed — the failure mode
 where a system looks most authoritative exactly when it is wrong. The Risk

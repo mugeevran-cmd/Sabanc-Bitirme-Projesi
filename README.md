@@ -93,7 +93,7 @@ Stages, in order: `ingest → sentiment → features → rag → forecast → ev
 ./.venv/bin/pytest
 ```
 
-134 tests, ~10 seconds, no pipeline run required — the retriever and the language
+140 tests, ~10 seconds, no pipeline run required — the retriever and the language
 model are stubbed and the price/sentiment frames are synthetic. They pin the
 things that would otherwise fail silently: the Risk Manager's decision table,
 the leak-safety of the windowing and the train/val/test embargo, the
@@ -118,6 +118,12 @@ Without a key the system runs completely — a template renderer produces the sa
 report structure. **The key changes the prose, never the decision:** findings and
 directives are computed deterministically in Python so they stay reproducible
 and testable. See §2.1 of the technical report.
+
+Without a key the prose can still be written by a model: `--export-briefs DIR`
+writes each agent's brief out, and `--narration-dir DIR` renders the report from
+prose files written against them (`<agent>.md`, missing files falling back to
+templates). The footer then reads `assisted` rather than `llm`, so an unattended
+run stays distinguishable from one a person helped with.
 
 The narration is briefed, not asked to improvise. Each agent hands the model the
 rule that fired, the counterfactual (how close the call came to being a
