@@ -15,8 +15,10 @@ import pytest
 
 from finagent_pulse import config
 from finagent_pulse.agents.committee import (
-    _quant_observations, _render_quant_report, _render_risk_report,
-    _render_sentiment_report, _risk_observations, _sentiment_observations)
+    _fmt_evidence, _fmt_fields, _fmt_observations, _quant_observations,
+    _read_narration, _render_quant_report, _write_brief, narration_mode,
+    _render_risk_report, _render_sentiment_report, _risk_observations,
+    _sentiment_observations, directive_contradiction, guard_directive)
 
 FLOOR = config.SIGNAL_TO_NOISE_MIN
 
@@ -242,3 +244,122 @@ def test_the_sentiment_report_prints_its_observations():
              observations=[{"kind": "regime_turn", "severity": "note",
                             "text": "the index and the session disagree"}])
     assert "the index and the session disagree" in _render_sentiment_report(f, [])
+
+
+# --------------------------------------------------------------------------
+# The brief the narrator is given
+# --------------------------------------------------------------------------
+# The prose is only as good as what the model is handed. These pin the two ways
+# the brief can quietly stop carrying the committee's reasoning: dropping the
+# argument, or burying an integrity flag below the routine notes.
+def test_the_brief_leaves_the_narrative_fields_to_their_own_sections():
+    """`reasons` and `observations` are the argument -- not `key: value` filler."""
+    fields = _fmt_fields({"directive": "HOLD", "conviction": 0.5,
+                          "reasons": ["a reason"], "observations": [{"text": "x"}],
+                          "principles": [{"principle": "p"}], "evidence": [{"headline": "h"}]})
+    assert "directive: HOLD" in fields
+    assert "a reason" not in fields and "principle" not in fields and "headline" not in fields
+
+
+def test_the_brief_drops_the_caller_s_skipped_fields():
+    assert "close" not in _fmt_fields({"close": 4000.0, "rsi_14": 50.0}, skip=("close",))
+
+
+def test_integrity_flags_lead_the_cross_check_section():
+    """A note printed above an integrity flag buries the thing that matters."""
+    rendered = _fmt_observations([
+        {"kind": "path_shape", "severity": "note", "text": "the path round-trips"},
+        {"kind": "forecast_scale", "severity": "integrity", "text": "the move is out of scale"}])
+    assert rendered.index("out of scale") < rendered.index("round-trips")
+
+
+def test_no_cross_checks_says_so_rather_than_going_blank():
+    """An empty section reads as missing data; the all-clear is a finding."""
+    assert "cross-check cleanly" in _fmt_observations([])
+
+
+# --------------------------------------------------------------------------
+# The narration cannot overrule the rules
+# --------------------------------------------------------------------------
+def test_prose_claiming_a_different_call_is_caught():
+    assert directive_contradiction("Recommendation: BUY at full size.", "HOLD")
+
+
+@pytest.mark.parametrize("prose", [
+    "The directive is HOLD.",
+    "Our **call: HOLD** this week.",
+    "The committee's verdict remains HOLD until the gate clears.",
+])
+def test_prose_agreeing_with_the_directive_passes(prose):
+    assert directive_contradiction(prose, "HOLD") is None
+
+
+def test_the_committee_s_own_counterfactual_is_not_a_contradiction():
+    """The real false positive: `_risk_observations` names the other directive.
+
+    "had the forecast cleared the floor, the directive would have been BUY" is
+    the report doing its job. A bare search for the word BUY flags it, which
+    would make the guard fire on exactly the reports worth reading.
+    """
+    prose = ("The call is HOLD. Nothing else was blocking it -- had the forecast "
+             "cleared the floor, the directive would have been BUY.")
+    assert directive_contradiction(prose, "HOLD") is None
+
+
+def test_prose_that_never_names_the_directive_is_caught():
+    """A justification that cannot say the word is not a justification of it."""
+    assert directive_contradiction("Markets are calm, so we wait.", "HOLD")
+
+
+def test_a_contradicting_narration_is_replaced_by_the_deterministic_report():
+    assert guard_directive("We recommend BUY.", "TEMPLATE", "HOLD") == "TEMPLATE"
+
+
+def test_a_sound_narration_is_kept():
+    assert guard_directive("The directive is HOLD.", "TEMPLATE", "HOLD") == "The directive is HOLD."
+
+
+def test_the_brief_carries_the_headlines_with_the_arms_that_found_them():
+    """The Risk Manager justifies against coverage, not just against a mean score."""
+    rendered = _fmt_evidence([{"date": "2024-03-01", "label": "negative",
+                               "sentiment": -0.3747, "provenance": "bm25+vector",
+                               "headline": "Is S&P 500 in a bubble zone?"}])
+    assert "bubble zone" in rendered and "bm25+vector" in rendered and "-0.37" in rendered
+
+
+def test_an_empty_retrieval_is_named_rather_than_left_blank():
+    assert "nothing retrieved" in _fmt_evidence([])
+
+
+# --------------------------------------------------------------------------
+# Narration routed through files
+# --------------------------------------------------------------------------
+# The brief is the whole interface to the narrative layer, so it has to survive
+# the round trip: everything a writer needs goes out, and prose written against
+# it comes back. Absent or empty prose must degrade to the template rather than
+# leave a hole in the report where an agent's section should be.
+def test_the_exported_brief_carries_the_system_prompt_and_the_task(tmp_path):
+    _write_brief(str(tmp_path), "risk_manager", "You are the risk manager.",
+                 "## What to write\nJustify the directive.")
+    written = (tmp_path / "risk_manager.brief.md").read_text()
+    assert "You are the risk manager." in written
+    assert "Justify the directive." in written
+    assert "risk_manager.md" in written, "the brief must say where the prose goes"
+
+
+def test_prose_written_against_a_brief_is_read_back(tmp_path):
+    (tmp_path / "risk_manager.md").write_text("The directive is HOLD.\n")
+    assert _read_narration(str(tmp_path), "risk_manager", "TEMPLATE") == "The directive is HOLD."
+
+
+@pytest.mark.parametrize("contents", [None, "", "   \n"])
+def test_missing_or_empty_prose_falls_back_to_the_template(tmp_path, contents):
+    if contents is not None:
+        (tmp_path / "risk_manager.md").write_text(contents)
+    assert _read_narration(str(tmp_path), "risk_manager", "TEMPLATE") == "TEMPLATE"
+
+
+def test_the_footer_names_how_the_prose_was_produced():
+    """A reader has to be able to tell an unattended run from an assisted one."""
+    assert narration_mode({"narrative": False}) == "template"
+    assert narration_mode({"narrative": True, "narration_dir": "reports/narration"}) == "assisted"

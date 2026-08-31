@@ -9,6 +9,7 @@ Stages are individually cached, so a rerun only redoes what is missing.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import logging
 import time
@@ -73,13 +74,17 @@ def stage_evaluate(force: bool) -> None:
     run_all()
 
 
-def stage_report(force: bool) -> None:
+def stage_report(force: bool, brief_dir: str | None = None,
+                 narration_dir: str | None = None) -> None:
     from finagent_pulse.agents.committee import executive_report, run_committee
     from finagent_pulse.data.preprocess import merge_features
 
     df = merge_features()
     as_of = df["date"].iloc[-1]
-    state = run_committee(df, as_of)
+    state = run_committee(df, as_of, brief_dir=brief_dir,
+                          narration_dir=narration_dir)
+    if brief_dir:
+        log.info("wrote narration briefs to %s", brief_dir)
     md = executive_report(state)
     out = config.REPORTS / f"executive_report_{as_of.date()}.md"
     out.write_text(md)
@@ -99,11 +104,23 @@ def main() -> None:
                     help="resume from this stage")
     ap.add_argument("--only", choices=STAGES, help="run a single stage")
     ap.add_argument("--force", action="store_true", help="ignore caches")
+    # Narration without an API key: export the briefs, write the prose against
+    # them elsewhere, then render the report from what you wrote.
+    ap.add_argument("--export-briefs", metavar="DIR",
+                    help="write each agent's narration brief to DIR")
+    ap.add_argument("--narration-dir", metavar="DIR",
+                    help="render the report from prose files in DIR "
+                         "(<agent>.md); missing files fall back to templates")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
                         datefmt="%H:%M:%S")
+
+    runners = dict(RUNNERS)
+    runners["report"] = functools.partial(
+        stage_report, brief_dir=args.export_briefs,
+        narration_dir=args.narration_dir)
 
     stages = [args.only] if args.only else STAGES[STAGES.index(args.start):]
     timings: dict[str, float] = {}
@@ -113,7 +130,7 @@ def main() -> None:
         log.info("STAGE: %s", name)
         log.info("=" * 62)
         t0 = time.time()
-        RUNNERS[name](args.force)
+        runners[name](args.force)
         timings[name] = round(time.time() - t0, 1)
         log.info("stage '%s' completed in %.1fs", name, timings[name])
 
