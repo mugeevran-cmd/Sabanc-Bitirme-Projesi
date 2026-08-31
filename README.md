@@ -110,9 +110,40 @@ write-up quoted a p-value that existed nowhere in the repository.
 
 ### Optional: LLM-written narratives
 
+The three committee agents can have their prose written by Claude instead of by
+the template renderer. The findings handed to the model already carry all three
+channels: the computed numbers, the headlines hybrid retrieval surfaced for that
+date, and the investment principles the Risk Manager consulted.
+
+Set the key in your shell profile, never in a file inside this repository:
+
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+echo 'export ANTHROPIC_API_KEY=sk-ant-your-key-here' >> ~/.zshrc && exec zsh
 ```
+
+Check it took, without printing the key:
+
+```bash
+[ -n "$ANTHROPIC_API_KEY" ] && echo "key is set (${#ANTHROPIC_API_KEY} chars)"
+```
+
+**This repository is public.** A key committed here is a key someone else
+spends, and deleting the commit does not un-publish it. Two guards are in place:
+`.gitignore` covers `.env*` and `secrets.*`, and a pre-commit hook refuses any
+commit containing something shaped like a live key. Enable the hook once per
+clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+If a key is ever exposed, revoke it at https://console.anthropic.com rather than
+trying to rewrite history. Share keys with teammates through a password manager,
+not through chat.
+
+Roughly $0.03 per committee run at `claude-sonnet-5` rates: about 2,600 input
+and 2,700 output tokens across the three agents. The dashboard caches a run per
+date, and the backtest passes `narrative=False`, so neither repeats the calls.
 
 Without a key the system runs completely — a template renderer produces the same
 report structure. **The key changes the prose, never the decision:** findings and
