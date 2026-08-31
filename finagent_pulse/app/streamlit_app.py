@@ -425,7 +425,7 @@ def tab_committee(as_of: pd.Timestamp) -> None:
         f"background:rgba(0,0,0,0.03);border-radius:6px'>"
         f"<h2 style='margin:0;color:{color}'>{risk['directive']}</h2>"
         f"<p style='margin:0.35rem 0 0'>Position size <b>{risk['position_pct']:.1f}%</b> "
-        f"of standard · conviction <b>{risk['conviction']:.0%}</b> · signals "
+        f"of standard · signals "
         f"<b>{risk['agreement'].replace('_', ' ')}</b></p></div>",
         unsafe_allow_html=True)
 

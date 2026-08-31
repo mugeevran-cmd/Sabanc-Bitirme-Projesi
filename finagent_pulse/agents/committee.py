@@ -754,8 +754,7 @@ def _render_risk_report(f: dict, quant: dict, sent: dict) -> str:
     lines = [
         "### Risk Manager — Final Directive",
         "",
-        f"## `{f['directive']}`  ·  position size **{f['position_pct']:.1f}%** of standard  ·  "
-        f"conviction **{f['conviction']:.0%}**",
+        f"## `{f['directive']}`  ·  position size **{f['position_pct']:.1f}%** of standard",
         "",
         f"The quantitative and sentiment streams are **{f['agreement'].replace('_', ' ')}**. "
         f"This directive follows because " + "; ".join(f["reasons"]) + ".",
@@ -848,10 +847,10 @@ def executive_report(state: dict) -> str:
         f"**Decision date:** {risk['as_of']}  ·  "
         f"**Horizon:** {config.LSTM.horizon} trading sessions",
         "",
-        "| Directive | Position | Conviction | 7-day forecast | Sentiment | Regime |",
-        "|---|---|---|---|---|---|",
+        "| Directive | Position | 7-day forecast | Sentiment | Regime |",
+        "|---|---|---|---|---|",
         f"| **{risk['directive']}** | {risk['position_pct']:.1f}% | "
-        f"{risk['conviction']:.0%} | {quant['forecast_7d_pct']:+.2f}% | "
+        f"{quant['forecast_7d_pct']:+.2f}% | "
         f"{sent['sentiment_now']:+.3f} ({sent['stance']}) | "
         f"{quant['volatility_regime']} vol |",
         "",
