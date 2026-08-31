@@ -31,6 +31,12 @@ class NarrativeWriter:
     def __init__(self) -> None:
         self.api_key = config.anthropic_key()
         self._client = None
+        # What the last attempted call actually did. ``mode`` reports this
+        # rather than reporting whether a key was configured, because those two
+        # answers diverge exactly when it matters: credit runs out mid-demo, the
+        # calls start failing, the templates come back, and a report that still
+        # says "llm" is claiming an author it does not have.
+        self.last_error: str | None = None
         if self.api_key:
             try:
                 import anthropic
@@ -44,13 +50,25 @@ class NarrativeWriter:
 
     @property
     def mode(self) -> str:
-        return "llm" if self._client else "template"
+        """Who wrote the most recent prose: ``llm``, or a template and why."""
+        if self._client is None:
+            return "template"
+        if self.last_error is not None:
+            return "template (llm unavailable)"
+        return "llm"
+
+    @property
+    def degraded(self) -> bool:
+        """True when a key is configured but the calls are not getting through."""
+        return self._client is not None and self.last_error is not None
 
     def write(self, system: str, prompt: str, fallback: str) -> str:
         """Return LLM prose, or ``fallback`` when no model is configured.
 
         Any API failure falls back rather than raising: a narrative outage must
-        never take down the analytical pipeline.
+        never take down the analytical pipeline. It does, however, get recorded
+        -- silently degrading and still reporting ``llm`` would misattribute the
+        text to a model that never saw it.
         """
         if self._client is None:
             return fallback
@@ -61,8 +79,11 @@ class NarrativeWriter:
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return "".join(b.text for b in resp.content if b.type == "text").strip()
-        except Exception as exc:                           # pragma: no cover
+            text = "".join(b.text for b in resp.content if b.type == "text").strip()
+            self.last_error = None
+            return text
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
             log.warning("LLM call failed (%s); falling back to template", exc)
             return fallback
 
