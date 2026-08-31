@@ -25,6 +25,10 @@ st.set_page_config(page_title="FinAgent-Pulse", page_icon="📈",
 
 ACCENT = "#2E86DE"
 UP, DOWN, MUTED = "#26A69A", "#EF5350", "#8892A0"
+# Traffic-light reading of the directive. HOLD gets amber rather than grey:
+# it is a decision the committee made, not an absence of one, and grey renders
+# as "nothing here" against a dark background.
+DIRECTIVE_COLOUR = {"BUY": UP, "SELL": DOWN, "HOLD": "#E9A13B"}
 
 # --------------------------------------------------------------------------
 # Chart presentation
@@ -90,8 +94,77 @@ CSS = """
                                  font-weight: 500; }
   /* Dataframes sit flush against their captions otherwise. */
   [data-testid="stDataFrame"] { margin-top: .35rem; }
+
+  /* --- Investment Committee -------------------------------------------
+     Neutral, translucent surfaces so the same rules read on either theme;
+     the only saturated colour is the directive accent and the signed
+     numbers, which is what those colours are for. */
+  .fp-hero { border-left: 5px solid var(--fp-accent); border-radius: 8px;
+             padding: 1.1rem 1.4rem; margin: .25rem 0 1.1rem;
+             background: linear-gradient(90deg,
+                          color-mix(in srgb, var(--fp-accent) 14%, transparent),
+                          rgba(128,128,128,0.05) 55%); }
+  .fp-hero-label { font-size: .74rem; letter-spacing: .12em;
+                   text-transform: uppercase; opacity: .6; }
+  .fp-hero-directive { font-size: 2.9rem; font-weight: 700; line-height: 1.05;
+                       margin: .1rem 0 .25rem; color: var(--fp-accent); }
+  .fp-hero-sub { font-size: .95rem; opacity: .85; }
+
+  .fp-stats { display: flex; gap: .7rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+  .fp-stat { flex: 1 1 150px; padding: .75rem .9rem; border-radius: 8px;
+             background: rgba(128,128,128,0.09);
+             border: 1px solid rgba(128,128,128,0.18); }
+  .fp-stat-label { font-size: .7rem; letter-spacing: .07em;
+                   text-transform: uppercase; opacity: .62; }
+  .fp-stat-value { font-size: 1.45rem; font-weight: 650; margin-top: .15rem; }
+  .fp-stat-note { font-size: .74rem; opacity: .55; margin-top: .1rem; }
+
+  .fp-agent { display: flex; align-items: baseline; gap: .6rem;
+              margin: 1.9rem 0 .2rem; padding-bottom: .45rem;
+              border-bottom: 2px solid rgba(128,128,128,0.22); }
+  .fp-agent-num { display: inline-flex; align-items: center;
+                  justify-content: center; width: 1.6rem; height: 1.6rem;
+                  border-radius: 50%; font-size: .8rem; font-weight: 700;
+                  background: var(--fp-accent); color: #fff; flex: none; }
+  .fp-agent-name { font-size: 1.22rem; font-weight: 650; }
+  .fp-agent-role { font-size: .8rem; opacity: .55; letter-spacing: .03em; }
 </style>
 """
+
+
+def signed(value: float, text: str) -> str:
+    """The number, coloured by its sign. Green up, red down, grey flat."""
+    colour = MUTED if value == 0 else (UP if value > 0 else DOWN)
+    return f"<span style='color:{colour}'>{text}</span>"
+
+
+def stat(label: str, value_html: str, note: str = "") -> str:
+    return (f"<div class='fp-stat'><div class='fp-stat-label'>{label}</div>"
+            f"<div class='fp-stat-value'>{value_html}</div>"
+            f"<div class='fp-stat-note'>{note}</div></div>")
+
+
+def agent_prose(text: str, name: str) -> str:
+    """The section body, minus the headings this page already renders.
+
+    The template memo opens each section with its own title, and the Risk
+    Manager's with a second line restating the directive and position size --
+    both of which the section header and the hero above now carry. Dropped only
+    when they are what is actually there: a heading naming this agent, or the
+    ``## `BUY` · position size ...`` line. Any other opening heading is the
+    narrator's own and stays, because it is telling the reader something.
+    """
+    lines = (text or "").lstrip().splitlines()
+    while lines:
+        head = lines[0].strip()
+        duplicates_header = head.startswith("#") and name.lower() in head.lower()
+        duplicates_hero = head.startswith("## `")
+        if not (duplicates_header or duplicates_hero):
+            break
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+    return "\n".join(lines).strip()
 
 
 # --------------------------------------------------------------------------
@@ -137,6 +210,11 @@ def run_committee_cached(as_of: str) -> dict:
         "sentiment": state["sentiment"],
         "risk": state["risk"],
         "report": executive_report(state),
+        # The three prose blocks on their own, so the tab can frame each one
+        # instead of rendering the whole memo as a single markdown blob. The
+        # memo itself stays untouched -- it is what the download button serves
+        # and what the pipeline commits.
+        "sections": dict(state.get("reports", {})),
         # Captured here, not read later: this result is cached, so a question
         # asked after the fact would answer about the wrong run.
         "narrative_mode": writer.mode,
@@ -419,21 +497,63 @@ def tab_committee(as_of: pd.Timestamp) -> None:
             "the findings and the directive are unaffected, since those are "
             f"computed in Python either way.\n\n`{result['narrative_error']}`")
 
-    color = {"BUY": UP, "SELL": DOWN, "HOLD": MUTED}[risk["directive"]]
+    quant, sent = result["quant"], result["sentiment"]
+    accent = DIRECTIVE_COLOUR[risk["directive"]]
+
+    # ---- the call itself ------------------------------------------------
     st.markdown(
-        f"<div style='padding:1rem 1.25rem;border-left:6px solid {color};"
-        f"background:rgba(0,0,0,0.03);border-radius:6px'>"
-        f"<h2 style='margin:0;color:{color}'>{risk['directive']}</h2>"
-        f"<p style='margin:0.35rem 0 0'>Position size <b>{risk['position_pct']:.1f}%</b> "
-        f"of standard · signals "
-        f"<b>{risk['agreement'].replace('_', ' ')}</b></p></div>",
+        f"<div class='fp-hero' style='--fp-accent:{accent}'>"
+        f"<div class='fp-hero-label'>Committee directive · {risk['as_of']}</div>"
+        f"<div class='fp-hero-directive'>{risk['directive']}</div>"
+        f"<div class='fp-hero-sub'>Position <b>{risk['position_pct']:.1f}%</b> "
+        f"of standard · signals <b>{risk['agreement'].replace('_', ' ')}</b>"
+        f"</div></div>",
+        unsafe_allow_html=True)
+
+    # ---- the four numbers the call rests on ------------------------------
+    # The same figures the memo's summary table carries; shown here instead of
+    # there, so the table is not printed twice on the page.
+    fc, sn = quant["forecast_7d_pct"], sent["sentiment_now"]
+    st.markdown(
+        "<div class='fp-stats'>"
+        + stat("7-day forecast", signed(fc, f"{fc:+.2f}%"),
+               f"vs a {quant['horizon_volatility_pct']:.2f}% noise band")
+        + stat("Sentiment", signed(sn, f"{sn:+.3f}"),
+               f"{sent['stance']} · {sent['headline_count']} headlines")
+        + stat("Fear &amp; Greed", f"{sent['fear_greed_index']:.0f}<span "
+               f"style='font-size:.9rem;opacity:.5'>/100</span>",
+               "percentile to date")
+        + stat("Volatility regime", quant["volatility_regime"],
+               f"{quant['volatility_percentile']:.0%} percentile of the year")
+        + "</div>",
         unsafe_allow_html=True)
 
     if risk["trap_warning"]:
         st.warning(risk["trap_warning"].replace("**", ""))
 
-    st.markdown("---")
-    st.markdown(result["report"])
+    # ---- what each agent said -------------------------------------------
+    agents = [
+        ("data_analyst", "Data Analyst", "Quantitative assessment", ACCENT),
+        ("sentiment_critic", "Sentiment Critic", "News & semantic assessment",
+         "#7E57C2"),
+        ("risk_manager", "Risk Manager", "Final directive", accent),
+    ]
+    for i, (key, name, role, colour) in enumerate(agents, start=1):
+        prose = agent_prose(result["sections"].get(key, ""), name)
+        if not prose:
+            continue
+        st.markdown(
+            f"<div class='fp-agent' style='--fp-accent:{colour}'>"
+            f"<span class='fp-agent-num'>{i}</span>"
+            f"<span class='fp-agent-name'>{name}</span>"
+            f"<span class='fp-agent-role'>{role}</span></div>",
+            unsafe_allow_html=True)
+        st.markdown(prose)
+
+    st.divider()
+    st.caption(f"Narrative mode: `{result['narrative_mode']}`. Directives are "
+               "computed deterministically from model output and are "
+               "reproducible. Academic prototype, not investment advice.")
     st.download_button("Download report (markdown)", result["report"],
                        file_name=f"finagent_report_{as_of.date()}.md")
 
