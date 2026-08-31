@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Refuse to commit anything that looks like a live Anthropic API key.
+#
+# This repository is public. A key pushed here is a key spent by someone else,
+# and rewriting history does not un-publish it -- GitHub serves the blob from
+# the moment it lands. So the check runs before the commit exists, not after.
+#
+# Enable it once per clone:   git config core.hooksPath .githooks
+set -euo pipefail
+
+# A real key is sk-ant- followed by a long opaque token. The README's
+# "sk-ant-..." placeholder and this file's own examples stay under the bar.
+PATTERN='sk-ant-[A-Za-z0-9_-]{24,}'
+
+hits=$(git diff --cached --diff-filter=d -U0 -G"$PATTERN" --name-only || true)
+if [ -n "$hits" ]; then
+    echo "✗ Commit blocked: something matching an Anthropic API key is staged in:"
+    echo "$hits" | sed 's/^/    /'
+    echo
+    echo "  Take it out of the file, then commit again. If the key was ever"
+    echo "  pushed, revoke it at https://console.anthropic.com — do not rely on"
+    echo "  deleting the commit."
+    echo
+    echo "  If this is a false positive: git commit --no-verify"
+    exit 1
+fi

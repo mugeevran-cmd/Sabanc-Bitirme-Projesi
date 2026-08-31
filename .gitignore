@@ -21,6 +21,7 @@ rag_index/
 kaggle.json
 .kaggle/
 .env
+.env.*
 *.pem
 secrets.*
 
