@@ -128,13 +128,19 @@ def get_forecaster_cached():
 @st.cache_data(show_spinner="Convening the investment committee…")
 def run_committee_cached(as_of: str) -> dict:
     from finagent_pulse.agents.committee import executive_report, run_committee
+    from finagent_pulse.agents.llm import get_writer
     features = load_features()
     state = run_committee(features, as_of)
+    writer = get_writer()
     return {
         "quant": state["quant"],
         "sentiment": state["sentiment"],
         "risk": state["risk"],
         "report": executive_report(state),
+        # Captured here, not read later: this result is cached, so a question
+        # asked after the fact would answer about the wrong run.
+        "narrative_mode": writer.mode,
+        "narrative_error": writer.last_error,
     }
 
 
@@ -403,6 +409,15 @@ def tab_committee(as_of: pd.Timestamp) -> None:
 
     result = run_committee_cached(str(as_of.date()))
     risk = result["risk"]
+
+    # A key that has stopped working degrades to templates silently. Say so
+    # here rather than letting the report claim an author it does not have.
+    if result.get("narrative_error"):
+        st.warning(
+            "**The narrative below was written by the template renderer, not by "
+            "the language model.** The API call failed, so the prose fell back — "
+            "the findings and the directive are unaffected, since those are "
+            f"computed in Python either way.\n\n`{result['narrative_error']}`")
 
     color = {"BUY": UP, "SELL": DOWN, "HOLD": MUTED}[risk["directive"]]
     st.markdown(
